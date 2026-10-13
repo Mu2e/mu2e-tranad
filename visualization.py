@@ -243,7 +243,8 @@ class DQMVisualizer:
         print(f"  ✓ {out_path_zoom}")
         plt.close()
     
-    def plot_detector_comparison(self, df, z_score_scores, pca_scores, tranad_scores):
+    def plot_detector_comparison(self, df, z_score_scores, pca_scores, tranad_scores,
+                                 tranad_threshold=None):
         """
         Compare anomaly scores from all three detectors.
         
@@ -287,7 +288,8 @@ class DQMVisualizer:
         axes[2].set_ylabel('Reconstruction Error')
         axes[2].set_xlabel('Timestamp')
         axes[2].set_title('TranAD Detector')
-        tranad_threshold = np.percentile(tranad_scores, 95)
+        if tranad_threshold is None:
+            tranad_threshold = np.percentile(tranad_scores, 95)
         axes[2].axhline(y=tranad_threshold, color='red', linestyle='--', linewidth=1, alpha=0.5)
         axes[2].grid(True, alpha=0.3)
         axes[2].legend()
@@ -647,7 +649,7 @@ class DQMVisualizer:
             
             # Use actual threshold from TranAD model if available
             tranad_threshold = None
-            if model_results and 'tranad_threshold' in model_results:
+            if model_results and model_results.get('tranad_threshold') is not None:
                 tranad_threshold = model_results['tranad_threshold']
                 print(f"  Using TranAD threshold from model: {tranad_threshold:.8f}")
             else:
@@ -666,7 +668,8 @@ class DQMVisualizer:
             self.plot_anomaly_scores(df, tranad_scores, detector_name='TranAD')
         
         # Detector comparison
-        self.plot_detector_comparison(df, z_score_scores, pca_scores, tranad_scores)
+        self.plot_detector_comparison(df, z_score_scores, pca_scores, tranad_scores,
+                                      tranad_threshold=(model_results or {}).get('tranad_threshold'))
         
         # Distribution and correlations
         self.plot_anomaly_distribution(df, anomaly_col)

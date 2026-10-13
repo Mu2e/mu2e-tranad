@@ -10,12 +10,8 @@ INPUT_FILE = "dqm_crv_anomaly_dataset_004-000.csv"
 OUTPUT_CLEAN_FILE = "dqm_crv_anomaly_dataset_004-000_filtered.csv"
 
 
-def clean_dqm_matrix(input_csv: str, output_csv: str):
-    print(f"Loading {input_csv}...")
-    df = pd.read_csv(input_csv)
-
-    print(f"Original shape: {df.shape[0]} rows, {df.shape[1]} columns")
-
+def filter_static_columns(df: pd.DataFrame):
+    """Drop feature columns that are constant (incl. all 1.0). Returns (df_clean, dropped_cols)."""
     dropped_cols = []
     kept_cols = []
 
@@ -41,8 +37,17 @@ def clean_dqm_matrix(input_csv: str, output_csv: str):
         else:
             kept_cols.append(col)
 
-    # Filter dataframe
-    df_clean = df[kept_cols]
+    return df[kept_cols], dropped_cols
+
+
+def clean_dqm_matrix(input_csv: str, output_csv: str):
+    print(f"Loading {input_csv}...")
+    df = pd.read_csv(input_csv)
+
+    print(f"Original shape: {df.shape[0]} rows, {df.shape[1]} columns")
+
+    df_clean, dropped_cols = filter_static_columns(df)
+    kept_cols = list(df_clean.columns)
 
     print("\n--- Cleaning Summary ---")
     print(f"Kept columns ({len(kept_cols)}): {kept_cols}")

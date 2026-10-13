@@ -89,21 +89,27 @@ class TranADDetector:
         self.threshold = None
         self.reconstruction_errors = None
     
-    def fit(self, X: np.ndarray) -> 'TranADDetector':
+    def fit(self, X: np.ndarray, train_idx: np.ndarray = None,
+            val_idx: np.ndarray = None) -> 'TranADDetector':
         """
-        Train TranAD model using 30% of data for baseline.
-        
+        Train TranAD and set the anomaly threshold.
+
         Args:
             X: (n_samples, n_features) array
+            train_idx: Row indices whose windows are used for training. Default: the
+                first train_ratio of rows (chronological, as in GenesisExample_v0.ipynb).
+            val_idx: Held-out rows used to set the threshold. Default: the training rows
+                themselves (in-sample, which under-estimates the threshold).
         """
         print("Training ANL TranAD model...")
-        
-        # Split data: 30% train (baseline), 70% test
+
         n_train = int(len(X) * self.train_ratio)
-        X_train = X[:n_train]
-        
+        if train_idx is None:
+            train_idx = np.arange(self.n_window, n_train)
+        train_idx = np.asarray(train_idx)
+        train_idx = train_idx[train_idx >= self.n_window]
+
         # Convert to tensors
-        X_train_tensor = torch.FloatTensor(X_train).to(self.device)
         X_full_tensor = torch.FloatTensor(X).to(self.device)
         
         # Configure and create model
@@ -121,7 +127,8 @@ class TranADDetector:
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         
         print(f"✓ Model created ({sum(p.numel() for p in self.model.parameters()):,} parameters)")
-        print(f"  Data split: {len(X_train)} train, {len(X) - len(X_train)} test")
+        print(f"  Data split: {len(train_idx)} train windows, "
+              f"{0 if val_idx is None else len(val_idx)} threshold-validation rows, {len(X)} total")
         print(f"  Window size: {self.n_window}, Model dim: {self.d_model}")
         print(f"  Device: {self.device}")
         
@@ -133,16 +140,16 @@ class TranADDetector:
             epoch_loss = 0.0
             count = 0
             
-            for i in range(self.n_window, len(X_train)):
-                # Get sliding window and target
-                x_window = X_train_tensor[i - self.n_window:i].unsqueeze(0)  # (1, T, F)
-                x_target = X_train_tensor[i].unsqueeze(0).unsqueeze(1)  # (1, 1, F)
+            for i in train_idx:
+                # Get sliding window (preceding rows) and target
+                x_window = X_full_tensor[i - self.n_window:i].unsqueeze(0)  # (1, T, F)
+                x_target = X_full_tensor[i].unsqueeze(0).unsqueeze(1)  # (1, 1, F)
                 
                 # Forward pass (two outputs: x1, x2)
                 x1, x2 = self.model(x_window, x_target)
                 
                 # Reconstruction loss on x2
-                loss = torch.mean((x2.squeeze() - X_train_tensor[i]) ** 2)
+                loss = torch.mean((x2.squeeze() - X_full_tensor[i]) ** 2)
                 
                 # Backward pass
                 self.optimizer.zero_grad()
@@ -176,11 +183,14 @@ class TranADDetector:
         
         self.reconstruction_errors = reconstruction_errors
         
-        # Set threshold from training period (percentile-based approach)
-        train_errors = reconstruction_errors[:n_train - self.n_window]
-        self.threshold = np.percentile(train_errors, self.threshold_percentile)
+        # Threshold: percentile of errors on held-out rows if given, else training rows
+        ref_idx = train_idx if val_idx is None else np.asarray(val_idx)
+        ref_idx = ref_idx[ref_idx >= self.n_window]
+        ref_errors = reconstruction_errors[ref_idx - self.n_window]
+        self.threshold = np.percentile(ref_errors, self.threshold_percentile)
         
-        print(f"✓ Threshold ({self.threshold_percentile}th percentile): {self.threshold:.8f}")
+        source = "training rows" if val_idx is None else "held-out rows"
+        print(f"✓ Threshold ({self.threshold_percentile}th percentile of {source}): {self.threshold:.8f}")
         
         return self
     

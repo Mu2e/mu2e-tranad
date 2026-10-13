@@ -181,6 +181,9 @@ class AnomalyDiagnostics:
         
         # Anomalies by date
         daily_anomalies = anomalies.groupby('date').size()
+        if daily_anomalies.empty:
+            results['daily_anomaly_stats'] = {}
+            return results
         results['daily_anomaly_stats'] = {
             'min': int(daily_anomalies.min()),
             'max': int(daily_anomalies.max()),

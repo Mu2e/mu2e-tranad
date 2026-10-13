@@ -16,9 +16,10 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-from . import ingestion, preprocessing, models
+from . import ingestion, preprocessing, models, tranad_prep
 from .visualization import DQMVisualizer
 from .diagnostics import AnomalyDiagnostics
+from .filter_from_dqm import filter_static_columns
 
 
 def create_report(df: pd.DataFrame,
@@ -66,13 +67,47 @@ def create_report(df: pd.DataFrame,
         print("\n✓ No anomalies detected!")
 
 
+def fetch_from_dqm(source_str: str, output_dir: str, groupx: str = "CRV",
+                   start_time_after_iso_utc: str = None,
+                   end_time_before_iso_utc: str = None) -> str:
+    """
+    Pull a DQM source from the DQM MCP server, drop static columns, and save it
+    as a CSV in output_dir. Returns the path of the filtered CSV.
+    """
+    from .dqm_mcp import fetch_matrix
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tag = source_str.replace(",", "_")
+
+    print("\n[PHASE 0] FETCH FROM DQM MCP")
+    print("-" * 70)
+    df = fetch_matrix(source_str, groupx=groupx,
+                      start_time_after_iso_utc=start_time_after_iso_utc,
+                      end_time_before_iso_utc=end_time_before_iso_utc)
+    raw_path = output_dir / f"dqm_{tag}.csv"
+    df.to_csv(raw_path, index=False)
+
+    df_clean, dropped = filter_static_columns(df)
+    filtered_path = output_dir / f"dqm_{tag}_filtered.csv"
+    df_clean.to_csv(filtered_path, index=False)
+    print(f"✓ Dropped {len(dropped)} static columns")
+    print(f"✓ Saved: {raw_path}")
+    print(f"✓ Saved: {filtered_path}")
+    return str(filtered_path)
+
+
 def main(csv_path: str,
          output_dir: str = "./results",
          iqr_multiplier: float = 1.5,
          voting_threshold: float = 2.0,
-         threshold_percentile: float = 95,
+         threshold_percentile: float = 99.5,
          generate_plots: bool = True,
-         apply_iqr_filtering: bool = False) -> None:
+         apply_iqr_filtering: bool = False,
+         tranad_features: str = "response",
+         train_mode: str = "stratified",
+         threshold_mode: str = "heldout",
+         seed: int = 0) -> None:
     """
     Run complete pipeline.
     
@@ -81,9 +116,16 @@ def main(csv_path: str,
         output_dir: Directory for output reports
         iqr_multiplier: IQR multiplier for outlier detection (only used if apply_iqr_filtering=True)
         voting_threshold: Voting threshold for ensemble
-        threshold_percentile: TranAD threshold percentile (default: 95)
+        threshold_percentile: TranAD threshold percentile (default: 99.5)
         generate_plots: Whether to generate visualization plots
         apply_iqr_filtering: Whether to apply IQR-based outlier removal (default: False to preserve anomalies)
+        tranad_features: 'response' (exclude calibration/pedestal metrics, drop near-constant
+            features, handle sentinels), 'changes' (response + calibration/pedestal metrics as
+            changes relative to their calibration epoch) or 'all' (same scaled matrix as Z-Score/PCA)
+        train_mode: TranAD training rows: 'stratified' (every calibration epoch),
+            'random', or 'chronological' (first 30%, original behaviour)
+        threshold_mode: 'heldout' (percentile of held-out rows) or 'train' (of training rows)
+        seed: Random seed for row selection
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -117,13 +159,55 @@ def main(csv_path: str,
     )
     
     # =========================================================================
+    # PHASE 2b: TRANAD INPUTS & CALIBRATION EPOCHS
+    # =========================================================================
+    print("\n[PHASE 2b] TRANAD INPUTS & CALIBRATION EPOCHS")
+    print("-" * 70)
+    df_clean = df_clean.reset_index(drop=True)
+    condition_feats, response_feats = tranad_prep.split_condition_features(active_features)
+    epochs, epoch_summary = tranad_prep.detect_calibration_epochs(df_clean, condition_feats)
+    df_clean['calib_epoch'] = epochs
+    if not epoch_summary.empty:
+        epoch_summary.to_csv(output_dir / "calibration_epochs.csv", index=False)
+        print(f"Calibration epochs (condition metrics: {len(condition_feats)}):")
+        print(epoch_summary[["epoch", "rows", "first_run", "last_run"] +
+                            [c for c in ("start", "end") if c in epoch_summary]].to_string(index=False))
+        print("  (epoch -1 = short transients, e.g. constants reading 0; excluded from training)")
+
+    if tranad_features in ("response", "changes"):
+        tranad_df, tranad_cols, dropped = tranad_prep.prepare_response_features(df_clean, response_feats)
+        print(f"TranAD features: {len(tranad_cols)} (response metrics + validity flags); "
+              f"excluded {len(condition_feats)} condition, dropped {len(dropped)} near-constant: {dropped}")
+        if tranad_features == "changes":
+            change_df, change_cols = tranad_prep.prepare_condition_changes(
+                df_clean, condition_feats, epochs)
+            tranad_df = pd.concat([tranad_df, change_df], axis=1)
+            n_changed = int((change_df != 0).any(axis=1).sum())
+            print(f"  + {len(change_cols)} condition-change features "
+                  f"(relative to calibration epoch; {n_changed} rows deviate)")
+        X_tranad_raw = tranad_df.to_numpy(dtype=float)
+    elif tranad_features == "all":
+        X_tranad_raw = None
+    else:
+        raise ValueError(f"Unknown tranad_features: {tranad_features}")
+
+    train_idx, val_idx = tranad_prep.select_rows(epochs, mode=train_mode, seed=seed)
+    print(f"TranAD rows: {train_mode} -> {len(train_idx)} train, {len(val_idx)} threshold-validation")
+    X_tranad = (X_scaled if X_tranad_raw is None
+                else tranad_prep.scale_on_rows(X_tranad_raw, train_idx))
+    if threshold_mode not in ("heldout", "train"):
+        raise ValueError(f"Unknown threshold_mode: {threshold_mode}")
+
+    # =========================================================================
     # PHASE 3: MODELS (ANOMALY DETECTION)
     # =========================================================================
     print("\n[PHASE 3] ANOMALY DETECTION")
     print("-" * 70)
     anomaly_pred, model_results = models.run_ensemble_detection(
         X_scaled, df_clean, active_features, voting_threshold=voting_threshold,
-        threshold_percentile=threshold_percentile
+        threshold_percentile=threshold_percentile,
+        X_tranad=X_tranad, tranad_train_idx=train_idx,
+        tranad_val_idx=val_idx if threshold_mode == "heldout" else None
     )
     
     # =========================================================================
@@ -208,15 +292,38 @@ def cli():
         epilog="""
 Examples:
   python -m dqm_pipeline --csv data.csv
+  python -m dqm_pipeline --dqm-source crvreco,kpp_crv,file,004-000
   python -m dqm_pipeline --csv data.csv --output ./results --iqr 1.5 --plots
         """
     )
     
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
         "--csv",
         type=str,
-        required=True,
         help="Path to filtered DQM CSV file"
+    )
+    source.add_argument(
+        "--dqm-source",
+        type=str,
+        help="Fetch data from the DQM MCP server for this source, "
+             "given as process,stream,aggregation,version (e.g. crvreco,kpp_crv,file,004-000)"
+    )
+    parser.add_argument(
+        "--dqm-group",
+        type=str,
+        default="CRV",
+        help="DQM value group to fetch with --dqm-source (default: CRV)"
+    )
+    parser.add_argument(
+        "--after",
+        type=str,
+        help="With --dqm-source: only intervals starting after this ISO UTC time"
+    )
+    parser.add_argument(
+        "--before",
+        type=str,
+        help="With --dqm-source: only intervals ending before this ISO UTC time"
     )
     parser.add_argument(
         "--output",
@@ -239,8 +346,35 @@ Examples:
     parser.add_argument(
         "--threshold-percentile",
         type=float,
-        default=95,
-        help="TranAD threshold percentile (default: 95, try 90 or 97 to adjust sensitivity)"
+        default=99.5,
+        help="TranAD threshold percentile (default: 99.5)"
+    )
+    parser.add_argument(
+        "--tranad-features",
+        choices=["response", "changes", "all"],
+        default="response",
+        help="TranAD inputs: 'response' excludes calibration/pedestal metrics and near-constant "
+             "features (default); 'changes' adds calibration/pedestal metrics as changes "
+             "relative to their calibration epoch; 'all' uses every active feature"
+    )
+    parser.add_argument(
+        "--train-mode",
+        choices=["stratified", "random", "chronological"],
+        default="stratified",
+        help="TranAD training rows: sampled from every calibration epoch (default), "
+             "random over all data, or the first 30%% (original behaviour)"
+    )
+    parser.add_argument(
+        "--threshold-mode",
+        choices=["heldout", "train"],
+        default="heldout",
+        help="Set the TranAD threshold on held-out rows (default) or on the training rows"
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed for TranAD row selection (default: 0)"
     )
     parser.add_argument(
         "--apply-iqr",
@@ -263,14 +397,23 @@ Examples:
     generate_plots = not args.no_plots
     
     try:
+        csv_path = args.csv
+        if args.dqm_source:
+            csv_path = fetch_from_dqm(args.dqm_source, args.output, groupx=args.dqm_group,
+                                      start_time_after_iso_utc=args.after,
+                                      end_time_before_iso_utc=args.before)
         main(
-            csv_path=args.csv,
+            csv_path=csv_path,
             output_dir=args.output,
             iqr_multiplier=args.iqr,
             voting_threshold=args.voting_threshold,
             threshold_percentile=args.threshold_percentile,
             generate_plots=generate_plots,
-            apply_iqr_filtering=args.apply_iqr
+            apply_iqr_filtering=args.apply_iqr,
+            tranad_features=args.tranad_features,
+            train_mode=args.train_mode,
+            threshold_mode=args.threshold_mode,
+            seed=args.seed
         )
     except Exception as e:
         print(f"\n✗ Error: {e}", file=sys.stderr)

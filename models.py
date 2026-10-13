@@ -135,7 +135,10 @@ def run_ensemble_detection(X: np.ndarray,
                           active_features: List[str],
                           voting_threshold: float = 2.0,
                           include_tranad: bool = True,
-                          threshold_percentile: float = 95) -> Tuple[np.ndarray, Dict]:
+                          threshold_percentile: float = 95,
+                          X_tranad: np.ndarray = None,
+                          tranad_train_idx: np.ndarray = None,
+                          tranad_val_idx: np.ndarray = None) -> Tuple[np.ndarray, Dict]:
     """
     Run ensemble of Z-Score, PCA, and TranAD detectors.
     
@@ -146,6 +149,9 @@ def run_ensemble_detection(X: np.ndarray,
         voting_threshold: Detectors >= this value → anomaly
         include_tranad: Whether to include TranAD in ensemble
         threshold_percentile: TranAD threshold percentile (default: 95)
+        X_tranad: Separate TranAD input matrix (default: X)
+        tranad_train_idx: Rows TranAD trains on (default: first 30%, chronological)
+        tranad_val_idx: Held-out rows for the TranAD threshold (default: training rows)
         
     Returns:
         Tuple of (ensemble_predictions, results_dict)
@@ -188,9 +194,10 @@ def run_ensemble_detection(X: np.ndarray,
                 threshold_percentile=threshold_percentile,
                 train_ratio=0.3
             )
-            tranad_detector.fit(X)
-            tranad_pred = tranad_detector.predict(X)
-            tranad_scores = tranad_detector.anomaly_scores(X)
+            X_t = X if X_tranad is None else X_tranad
+            tranad_detector.fit(X_t, train_idx=tranad_train_idx, val_idx=tranad_val_idx)
+            tranad_pred = tranad_detector.predict(X_t)
+            tranad_scores = tranad_detector.anomaly_scores(X_t)
             tranad_losses = tranad_detector.training_losses
             tranad_threshold = tranad_detector.threshold  # Capture actual threshold
             print(f"  TranAD threshold captured: {tranad_threshold:.8f}")
