@@ -29,7 +29,7 @@ try:
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
     
-    from anldq.deep_learning.models import TranAD
+    from anldq.deep_learning.models.tranad import TranAD
     from anldq.configs.model_config import TranADConfig
     ANLDQ_AVAILABLE = True
 except ImportError as e:

@@ -6,48 +6,60 @@
 
 ## Quick start
 
+TranAD comes from the `anldq` package in the ANL [CrossExperimentalAIDQM](https://github.com/anl-hep-ai-ml/CrossExperimentalAIDQM) repository, which needs access. Clone this repository **inside** a CrossExperimentalAIDQM checkout, **as `dqm_pipeline/`**:
+
+```
+CrossExperimentalAIDQM/        <- ANL repository
+├── src/anldq/                 <- provides TranAD
+└── dqm_pipeline/              <- this repository
+```
+
 On a Mu2e gpvm (CPU is enough):
 
 ```bash
-cd /exp/mu2e/app/users/<you>/CrossExperimentalAIDQM
-source envs/setup_ana_env.sh          # must print "dqm_pipeline env ready (TranAD available)"
+git clone git@github.com:anl-hep-ai-ml/CrossExperimentalAIDQM.git
+cd CrossExperimentalAIDQM
+git clone https://github.com/sophiemiddleton/Mu2e-TranADDQM.git dqm_pipeline
 
-# Fetch a DQM source directly and analyse it
+source dqm_pipeline/setup_env.sh      # must print "dqm_pipeline env ready (TranAD available)"
+
+# Fetch a DQM source and analyse it (needs the FNAL network, see Environment)
 python -m dqm_pipeline --dqm-source crvreco,kpp_crv,file,005-001 --output results/crvreco_005-001
 
-# ...or analyse a CSV you already have
-python -m dqm_pipeline --csv dqm_pipeline/dqm_crv_anomaly_dataset_004-000_filtered.csv --output results/004-000
+# ...or analyse a CSV you already have, for example the filtered CSV saved by the run above
+python -m dqm_pipeline --csv results/crvreco_005-001/dqm_crvreco_kpp_crv_file_005-001_filtered.csv \
+    --output results/rerun_005-001
 ```
 
-Open `results/<dir>/anomaly_report_*_anomalies_only.csv` and `results/<dir>/diagnostics/diagnostic_report.txt` first.
+Run these commands from the CrossExperimentalAIDQM directory. Open `results/<dir>/anomaly_report_*_anomalies_only.csv` and `results/<dir>/diagnostics/diagnostic_report.txt` first.
 
-> **If you skip `setup_ana_env.sh`, TranAD is silently disabled.** When `torch` or `anldq` cannot be imported, the pipeline prints `⚠️ ANL package not available` (or `PyTorch not available`) and still runs. Every TranAD score and prediction is then 0, so the primary `anomaly` column contains no anomalies.
+> **If TranAD cannot be imported, it is silently disabled.** When `torch` or `anldq` cannot be imported, the pipeline prints `⚠️ ANL package not available` (or `PyTorch not available`) and still runs. Every TranAD score and prediction is then 0, so the primary `anomaly` column contains no anomalies. The usual causes are skipping `setup_env.sh`, cloning this repository under a name other than `dqm_pipeline`, or cloning it outside CrossExperimentalAIDQM.
 
 ---
 
 ## Environment
 
-The pipeline must be run from inside this repository. `tranad_model.py` imports the TranAD model from `anldq`, which lives in `../src`.
+`tranad_model.py` imports the TranAD model from `anldq` in `../src`, so the directory layout in the Quick start is required. `python -m dqm_pipeline` also needs the CrossExperimentalAIDQM directory on `PYTHONPATH` (or as the current directory).
 
-**Recommended: `envs/setup_ana_env.sh`.** This script uses the Mu2e cvmfs `ana` environment (Python 3.12, torch 2.5.1, pandas, scikit-learn, matplotlib). On first use it adds the missing packages to `envs/ana_extras/`, which is git-ignored:
+**Recommended on a Mu2e gpvm: `setup_env.sh`.** This script uses the Mu2e cvmfs `ana` environment (Python 3.12, torch 2.5.1, pandas, scikit-learn, matplotlib). On first use it adds the missing packages to `dqm_pipeline/.ana_extras/`, which is git-ignored:
 
 | Package | Why it is needed |
 |---------|------------------|
 | `seaborn` | Correlation heatmap in `visualization.py` |
-| `tensorboard` | Imported by `anldq/trainer/utils/logging.py` |
+| `tensorboard` | Imported when `anldq` is imported |
 | `spt3g` (no-op stub) | Imported by the SPT-3G loader in `anldq`, which this pipeline never uses |
 
-The script also puts the repository and the extras on `PYTHONPATH`, and sets `MPLBACKEND=Agg` and `PYTHONWARNINGS=ignore`.
+The script also puts CrossExperimentalAIDQM and the extras on `PYTHONPATH`, and sets `MPLBACKEND=Agg` and `PYTHONWARNINGS=ignore`. It warns if the directory layout is wrong.
 
-**Alternative: pip.** From the repository root:
+**Alternative: your own Python environment.** Use the ANL conda environment (`envs/anldq_gpu.yml` in CrossExperimentalAIDQM), or install the dependencies yourself:
 
 ```bash
-pip install -e ".[tranad]"    # pandas, numpy, scikit-learn, matplotlib, seaborn, torch
+pip install -e "./dqm_pipeline[tranad]"   # from CrossExperimentalAIDQM; pandas, numpy, scikit-learn, matplotlib, seaborn, torch, tensorboard
 ```
 
-This also installs a `dqm_pipeline` console command. You still need `anldq` and its dependencies to be importable for TranAD to run.
+This also installs a `dqm_pipeline` console command. Use `-e` (editable): a regular install copies the package away from `../src`, so `anldq` is no longer found. If you don't use the ANL conda environment, you may also need the `spt3g` stub from `setup_env.sh`.
 
-**DQM MCP server.** `--dqm-source` and `export_from_dqm` fetch data from the DQM MCP server at `http://mu2eaigpvm01.fnal.gov:8001/mcp`. To use a different server, set `DQM_MCP_URL`. The client only uses the Python standard library, so no extra packages are required.
+**DQM MCP server.** `--dqm-source` and `export_from_dqm` fetch data from the DQM MCP server at `http://mu2eaigpvm01.fnal.gov:8001/mcp`, which is only reachable from the FNAL network. Outside FNAL, use `--csv` with a CSV exported on site. To use a different server, set `DQM_MCP_URL`. The client only uses the Python standard library, so no extra packages are required.
 
 ---
 
@@ -95,7 +107,7 @@ Recalibrations are expected events, but TranAD would flag every one of them as a
 4. **Choose the training and threshold rows**, controlled by `--train-mode` and `--seed`. Training uses 30% of rows and threshold validation uses a separate 10%:
    - `stratified` (default): 30% and 10% are sampled from *every* calibration epoch, and transients are excluded. This way, every calibration state counts as normal.
    - `random`: rows are sampled uniformly from the whole dataset.
-   - `chronological`: the first 30% of rows are used for training and the next 10% for validation. This matches the original Genesis notebook.
+   - `chronological`: the first 30% of rows are used for training and the next 10% for validation. This matches the original prototype of this pipeline.
 
    The TranAD inputs are then standardised using the training rows only.
 
@@ -120,7 +132,7 @@ The first 4 rows (the window length) always have a TranAD score of 0.
 - `extreme_features.csv` lists the features with extreme z-scores in anomalous rows.
 - `diagnostic_report.txt` is a text summary. It covers how often the detectors agree, a breakdown of the votes, when anomalies occurred, and the features that best separate anomalous rows from normal ones. The same text is printed to the console.
 
-See [`../docs/DIAGNOSTICS.md`](../docs/DIAGNOSTICS.md) to use `AnomalyDiagnostics` on its own.
+See [DIAGNOSTICS.md](DIAGNOSTICS.md) for how to read these files, and how to use `AnomalyDiagnostics` on its own.
 
 ### Phase 6 — Plots (`visualization.py`, saved to `plots/`, skip with `--no-plots`)
 
@@ -221,15 +233,18 @@ client.list_values(groupx="CRV")
 | `tranad_model.py` | Wrapper around the `anldq` TranAD model |
 | `diagnostics.py` | Phase 5 |
 | `visualization.py` | Phase 6 |
-| `dqm_crv_anomaly_dataset_004-000_filtered.csv` | Sample input: `crvreco 004-000`, about 1,100 rows |
+| `setup_env.sh` | Environment for a Mu2e gpvm (see Environment) |
+| `setup.py` | Optional `pip install -e` support |
+| [DIAGNOSTICS.md](DIAGNOSTICS.md) | Guide to the Phase 5 diagnostics |
 
-The original prototype is in `../Genesis/`. It contains a `DqmTool`-based exporter, `filter.py` and `GenesisExample_v0.ipynb`.
+The pipeline started as a notebook prototype (referred to as "Genesis" in some code comments) that used the Mu2e `DqmTool` exporter. This repository replaces it.
 
 ---
 
 ## Known limitations
 
 - **TranAD and the `anomaly` column depend on the environment.** If TranAD cannot be imported, nothing is flagged and the pipeline does not stop with an error. Check the console for the `⚠️` import warnings.
+- **TranAD scores depend on the `anldq` version.** `anldq` is maintained separately in CrossExperimentalAIDQM, and its TranAD implementation changes over time. Record the CrossExperimentalAIDQM commit (`git rev-parse HEAD` in that directory) along with your results.
 - **Z-score and PCA are fitted on the data they score.** Their thresholds are relative to the dataset being analysed, so the 5% PCA rate is fixed by construction. Use them as cross-checks, not as absolute tests.
 - **PCA keeps every component** (`n_components=None`, and `variance_threshold` is not used), so it reconstructs the data exactly. In the `005-001` run, the reconstruction errors were about 1e-29, which is floating-point noise. The 5% of rows that PCA flags are therefore effectively random until a component count is set.
 - **TranAD trains sequentially, one window at a time, with no batching.** This is fine for thousands of rows but becomes slow on much larger datasets.
