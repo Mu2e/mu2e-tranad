@@ -178,7 +178,8 @@ def run_ensemble_detection(X: np.ndarray,
     tranad_losses = []
     tranad_batch_losses = []
     tranad_threshold = None
-    
+    tranad_detector = None
+
     if include_tranad and TRANAD_ANL_AVAILABLE:
         try:
             # Use official ANL TranAD with Genesis notebook parameters
@@ -203,6 +204,7 @@ def run_ensemble_detection(X: np.ndarray,
             print(f"  TranAD threshold captured: {tranad_threshold:.8f}")
         except Exception as e:
             print(f"⚠️  TranAD training failed: {e}")
+            tranad_detector = None
             tranad_pred = np.zeros_like(z_pred)
             tranad_scores = np.zeros_like(z_scores)
             tranad_losses = []
@@ -241,6 +243,8 @@ def run_ensemble_detection(X: np.ndarray,
         'tranad_scores': tranad_scores,
         'tranad_losses': tranad_losses,
         'tranad_threshold': tranad_threshold,  # Add actual threshold
+        'pca_detector': pca_detector,      # fitted, for saving a model bundle
+        'tranad_detector': tranad_detector,
         'voting_scores': votes,
         'n_anomalies': n_anomalies,
         'anomaly_rate': anomaly_rate,

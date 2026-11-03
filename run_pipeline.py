@@ -16,7 +16,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-from . import ingestion, preprocessing, models, tranad_prep
+from . import bundle, ingestion, preprocessing, models, tranad_prep
 from .visualization import DQMVisualizer
 from .diagnostics import AnomalyDiagnostics
 from .filter_from_dqm import filter_static_columns
@@ -107,7 +107,9 @@ def main(csv_path: str,
          tranad_features: str = "response",
          train_mode: str = "stratified",
          threshold_mode: str = "heldout",
-         seed: int = 0) -> None:
+         seed: int = 0,
+         save_model: str = None,
+         source: str = None) -> None:
     """
     Run complete pipeline.
     
@@ -126,6 +128,9 @@ def main(csv_path: str,
             'random', or 'chronological' (first 30%, original behaviour)
         threshold_mode: 'heldout' (percentile of held-out rows) or 'train' (of training rows)
         seed: Random seed for row selection
+        save_model: If set, write the trained models here for the online DQM evaluator
+            (see bundle.py / evaluator.py)
+        source: DQM source the data came from, recorded in the model bundle
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -188,6 +193,7 @@ def main(csv_path: str,
         X_tranad_raw = tranad_df.to_numpy(dtype=float)
     elif tranad_features == "all":
         X_tranad_raw = None
+        tranad_cols = None
     else:
         raise ValueError(f"Unknown tranad_features: {tranad_features}")
 
@@ -210,6 +216,11 @@ def main(csv_path: str,
         tranad_val_idx=val_idx if threshold_mode == "heldout" else None
     )
     
+    if save_model:
+        bundle.save_bundle(save_model, df_clean, active_features, scaler, model_results,
+                           tranad_features, tranad_cols, X_tranad_raw, train_idx,
+                           source=source or csv_path)
+
     # =========================================================================
     # PHASE 4: REPORTING
     # =========================================================================
@@ -377,6 +388,12 @@ Examples:
         help="Random seed for TranAD row selection (default: 0)"
     )
     parser.add_argument(
+        "--save-model",
+        type=str,
+        help="Write the trained models to this file, for the online DQM evaluator "
+             "(dqm_pipeline/evaluator.py)"
+    )
+    parser.add_argument(
         "--apply-iqr",
         action="store_true",
         help="Apply IQR-based outlier filtering in preprocessing (default: False to preserve anomalies)"
@@ -413,7 +430,9 @@ Examples:
             tranad_features=args.tranad_features,
             train_mode=args.train_mode,
             threshold_mode=args.threshold_mode,
-            seed=args.seed
+            seed=args.seed,
+            save_model=args.save_model,
+            source=args.dqm_source
         )
     except Exception as e:
         print(f"\n✗ Error: {e}", file=sys.stderr)

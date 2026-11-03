@@ -25,6 +25,12 @@ SENTINELS = {
 }
 
 
+def sentinel_value(feature: str):
+    """The "no fit" value this feature writes, or None if it has none."""
+    return next((v for p, (suffix, v) in SENTINELS.items()
+                 if p in feature and feature.endswith(suffix)), None)
+
+
 def split_condition_features(features: List[str]) -> Tuple[List[str], List[str]]:
     """Return (condition_features, response_features)."""
     cond = [f for f in features if any(p in f for p in CONDITION_PATTERNS)]
@@ -86,8 +92,7 @@ def prepare_response_features(df: pd.DataFrame, features: List[str],
     dropped = []
     for f in features:
         vals = pd.to_numeric(df[f], errors="coerce")
-        sentinel = next((v for p, (suffix, v) in SENTINELS.items()
-                         if p in f and f.endswith(suffix)), None)
+        sentinel = sentinel_value(f)
         if sentinel is not None:
             ok = vals != sentinel
             if ok.sum() == 0:
@@ -162,9 +167,15 @@ def select_rows(epochs: np.ndarray, mode: str = "stratified", train_ratio: float
     return np.sort(np.concatenate(train)), np.sort(np.concatenate(val))
 
 
-def scale_on_rows(X: np.ndarray, rows: np.ndarray) -> np.ndarray:
-    """Standardise with mean/std of the given rows (features constant there get std 1)."""
+def row_stats(X: np.ndarray, rows: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Mean/std of the given rows (features constant there get std 1)."""
     mu = X[rows].mean(axis=0)
     sd = X[rows].std(axis=0)
     sd[sd == 0] = 1.0
+    return mu, sd
+
+
+def scale_on_rows(X: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """Standardise with mean/std of the given rows (features constant there get std 1)."""
+    mu, sd = row_stats(X, rows)
     return (X - mu) / sd

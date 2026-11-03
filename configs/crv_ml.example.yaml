@@ -1,0 +1,26 @@
+# One DQM driver running the crv_ml evaluator. Copy, edit, and run with
+#   source dqm_pipeline/setup_env.sh
+#   python -m dqm_pipeline.dqm_driver crv_ml.yaml --check     # load config + model, exit
+#   python -m dqm_pipeline.dqm_driver crv_ml.yaml             # one invocation (cron)
+# See "Online evaluation" in dqm_pipeline/README.md.
+
+algo:    crv_ml
+config:  crv-tranad-v1       # bump on every retrain: alarm episodes are keyed on it
+sid:     114                 # crvreco,kpp_crv,file,004-000
+
+commit:     false            # report only until the findings have been reviewed
+max_points: 200
+
+# Go-live floor: without it the first invocations walk the whole back history
+min_time: 2026-11-04
+
+workdir:   /exp/mu2e/app/users/CHANGE_ME/dqm-drivers/crv-tranad
+log:       driver.log
+log_level: INFO
+
+pars:
+  model: /exp/mu2e/app/users/CHANGE_ME/models/crv_ml_v1.pkl   # from --save-model
+  detectors: [tranad]        # pca only after it is retrained with fewer components
+  level: warn
+  threshold_scale: 1.0
+  top_causes: 5

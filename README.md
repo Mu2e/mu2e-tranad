@@ -171,6 +171,7 @@ python -m dqm_pipeline (--csv PATH | --dqm-source P,S,A,V) [options]
 | `--seed` | `0` | Random seed for selecting TranAD rows |
 | `--apply-iqr` / `--iqr K` | off / `1.5` | Remove IQR outliers before detection. Use only to clean training data. |
 | `--no-plots` | — | Skip Phase 6, which is the slowest step for wide datasets |
+| `--save-model PATH` | — | Save the trained models for the online evaluator (see Online evaluation) |
 
 ### Exporting and filtering on their own
 
@@ -218,6 +219,57 @@ client.list_values(groupx="CRV")
 
 ---
 
+## Online evaluation (Mu2e DQM driver)
+
+The trained models can run inside the Mu2e DQM evaluation framework
+([Mu2e/DQM](https://github.com/Mu2e/DQM), `python/dqm/evaluate`), next to the `limits` and
+`trends` evaluators. The DQM driver hands an evaluator one new timeline point at a time,
+together with the points before it, and commits what it reports as alarms. Training stays
+here, offline:
+
+```bash
+source dqm_pipeline/setup_env.sh      # also puts ./DQM/python (a Mu2e/DQM clone) on PYTHONPATH
+
+# 1. Train and save the models (TranAD threshold, scaling and weights are frozen here)
+python -m dqm_pipeline --dqm-source crvreco,kpp_crv,file,004-000 --output results/004-000 \
+    --no-plots --save-model models/crv_ml_v1.pkl
+
+# 2. Configure a driver (copy dqm_pipeline/configs/crv_ml.example.yaml) and check it
+python -m dqm_pipeline.dqm_driver crv_ml.yaml --check
+
+# 3. Run it, from cron; report mode (commit: false) writes nothing to the database
+python -m dqm_pipeline.dqm_driver crv_ml.yaml
+```
+
+`dqm_driver` is the DQM `dqm-driver` command with the `crv_ml` algorithm added to its
+registry, so the code does not need to live in the DQM repository. The evaluator
+(`evaluator.py`) reports two subjects:
+
+| Subject | Raised when |
+|---------|-------------|
+| `tranad_outlier` | TranAD's reconstruction error for the point, from it and the 4 points before it, is above the trained threshold |
+| `pca_outlier` | The PCA reconstruction error is above the trained threshold. Refused until PCA keeps fewer components (see Known limitations). |
+
+Each finding names the `top_causes` worst-reconstructed metrics as its causes, and its note
+holds the score, the threshold, those metrics' values and errors, and the training date.
+Replaying the 004-000 training data through the driver reproduces the batch
+`tranad_reconstruction_error` and flags to float32 precision. Scoring takes about 5 ms per
+point on a gpvm CPU; most of the time goes to importing torch and to the database reads.
+
+- **Start with a floor.** Set `min_time` (or `min_run`) to the go-live date. Without one, the
+  first invocations examine the whole back history and open an alarm episode for every old
+  anomaly. To look at the history, run in report mode first.
+- **Retrain when the metrics change.** The bundle stores the feature names it was trained on.
+  A point that lacks one of them, or has one flagged by its producer, is skipped and the skip is
+  logged. New metrics are ignored. After retraining, change `config` (for example
+  `crv-tranad-v2`), so the new model's alarms do not extend the old model's episodes.
+- **The bundle is a pickle of numpy arrays.** Read it with the numpy major version it was
+  written with (the `ana` environment).
+- `--tranad-features changes` cannot be saved yet, because calibration-epoch references
+  need the whole dataset.
+
+---
+
 ## Files
 
 | File | Role |
@@ -232,6 +284,10 @@ client.list_values(groupx="CRV")
 | `models.py` | Phase 3: Z-score and PCA detectors, and the ensemble |
 | `tranad_model.py` | Wrapper around the `anldq` TranAD model |
 | `diagnostics.py` | Phase 5 |
+| `bundle.py` | Saves and loads the trained models for the online evaluator |
+| `evaluator.py` | `crv_ml` evaluator for the Mu2e DQM driver |
+| `dqm_driver.py` | `dqm-driver` with `crv_ml` registered |
+| `configs/crv_ml.example.yaml` | Example driver config |
 | `visualization.py` | Phase 6 |
 | `setup_env.sh` | Environment for a Mu2e gpvm (see Environment) |
 | `setup.py` | Optional `pip install -e` support |
