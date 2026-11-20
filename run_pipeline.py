@@ -16,10 +16,11 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-from . import bundle, ingestion, preprocessing, models, tranad_prep
-from .visualization import DQMVisualizer
-from .diagnostics import AnomalyDiagnostics
-from .filter_from_dqm import filter_static_columns
+from .reading import ingestion
+from .reading.filter_from_dqm import filter_static_columns
+from .training import bundle, preprocessing, models, tranad_prep
+from .analysis.visualization import DQMVisualizer
+from .analysis.diagnostics import AnomalyDiagnostics
 
 
 def create_report(df: pd.DataFrame,
@@ -74,7 +75,7 @@ def fetch_from_dqm(source_str: str, output_dir: str, groupx: str = "CRV",
     Pull a DQM source from the DQM MCP server, drop static columns, and save it
     as a CSV in output_dir. Returns the path of the filtered CSV.
     """
-    from .dqm_mcp import fetch_matrix
+    from .reading.dqm_mcp import fetch_matrix
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +139,7 @@ def main(csv_path: str,
         drift_sigma: Flag training drift when a feature's window median has moved more
             than this many training standard deviations from its training median
         save_model: If set, write the trained models here for the online DQM evaluator
-            (see bundle.py / evaluator.py)
+            (see training/bundle.py / evaluator/ml_evaluator.py)
         source: DQM source the data came from, recorded in the model bundle
         drop_empty: Set aside subruns with no CRV digis before modelling; they are written
             to no_crv_data.csv and flagged there instead of being scored
@@ -472,7 +473,7 @@ Examples:
         "--save-model",
         type=str,
         help="Write the trained models to this file, for the online DQM evaluator "
-             "(mu2e_tranad/evaluator.py)"
+             "(mu2e_tranad/evaluator/)"
     )
     parser.add_argument(
         "--drop-empty",

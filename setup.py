@@ -10,7 +10,7 @@ setup(
     description="DQM anomaly detection pipeline for Mu2e CRV detector",
     author="Sophie",
     # This repo *is* the package directory, so map the package to the repo root.
-    packages=["mu2e_tranad"],
+    packages=["mu2e_tranad"] + [f"mu2e_tranad.{p}" for p in ("reading", "training", "evaluator", "analysis")],
     package_dir={"mu2e_tranad": "."},
     python_requires=">=3.9",
     install_requires=[

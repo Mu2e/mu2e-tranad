@@ -14,7 +14,7 @@
 # Base: Mu2e cvmfs "ana" env (Python 3.12, torch 2.5.1, pandas, sklearn, matplotlib).
 # It is missing a few packages the pipeline/anldq import, so these are installed
 # once into mu2e_tranad/.ana_extras and added to PYTHONPATH:
-#   - seaborn      : used by visualization.py (correlation heatmap)
+#   - seaborn      : used by analysis/visualization.py (correlation heatmap)
 #   - tensorboard  : imported when anldq is imported
 #   - spt3g (stub) : imported by anldq's SPT-3G dataset loader, which the DQM
 #                    pipeline never uses; the real library is a compiled telescope
@@ -58,15 +58,15 @@ fi
 export PYTHONPATH="$_REPO:$_EXTRAS${PYTHONPATH:+:$PYTHONPATH}"
 
 # Mu2e/DQM python package (dqm.evaluate), for the online evaluator in
-# mu2e_tranad/evaluator.py; a clone of github.com/Mu2e/DQM at $_REPO/DQM
+# mu2e_tranad/evaluator/; a clone of github.com/Mu2e/DQM at $_REPO/DQM
 if [ -d "$_REPO/DQM/python/dqm" ]; then
     export PYTHONPATH="$_REPO/DQM/python:$PYTHONPATH"
 fi
 export MPLBACKEND=Agg
 export PYTHONWARNINGS=ignore
 
-python -c "import mu2e_tranad.tranad_model as t; assert t.TRANAD_ANL_AVAILABLE" 2>/dev/null \
+python -c "import mu2e_tranad.training.tranad_model as t; assert t.TRANAD_ANL_AVAILABLE" 2>/dev/null \
     && echo "mu2e_tranad env ready (TranAD available)" \
-    || echo "WARNING: TranAD not importable; run: python -c 'import mu2e_tranad.tranad_model'"
+    || echo "WARNING: TranAD not importable; run: python -c 'import mu2e_tranad.training.tranad_model'"
 
 unset _PKG _REPO _EXTRAS _ANA

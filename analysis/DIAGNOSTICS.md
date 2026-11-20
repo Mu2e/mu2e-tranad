@@ -1,4 +1,4 @@
-# Anomaly diagnostics (`diagnostics.py`)
+# Anomaly diagnostics (`analysis/diagnostics.py`)
 
 `AnomalyDiagnostics` helps explain *why* rows were flagged. It looks at:
 
@@ -10,7 +10,7 @@
 
 ## In the pipeline
 
-Diagnostics run automatically as Phase 5 of `python -m mu2e_tranad` (see [README.md](README.md)). The results are written to `<output>/diagnostics/`:
+Diagnostics run automatically as Phase 5 of `python -m mu2e_tranad` (see [README.md](../README.md)). The results are written to `<output>/diagnostics/`:
 
 | File | Content |
 |------|---------|
@@ -61,7 +61,7 @@ CRV_crvCoincidencesClusters_CCR1 | Diff:     0.3359 (974.05%)
 
 ```python
 import pandas as pd
-from mu2e_tranad.diagnostics import AnomalyDiagnostics
+from mu2e_tranad.analysis.diagnostics import AnomalyDiagnostics
 
 df = pd.read_csv("results/004-000/anomaly_report_<timestamp>.csv", parse_dates=["datetime"])
 meta = {"run", "subrun", "timestamp", "datetime", "calib_epoch", "anomaly",

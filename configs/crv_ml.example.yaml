@@ -1,7 +1,7 @@
 # One DQM driver running the crv_ml evaluator. Copy, edit, and run with
 #   source mu2e_tranad/setup_env.sh
-#   python -m mu2e_tranad.dqm_driver crv_ml.yaml --check     # load config + model, exit
-#   python -m mu2e_tranad.dqm_driver crv_ml.yaml             # one invocation (cron)
+#   python -m mu2e_tranad.evaluator.dqm_driver crv_ml.yaml --check     # load config + model, exit
+#   python -m mu2e_tranad.evaluator.dqm_driver crv_ml.yaml             # one invocation (cron)
 # See "Online evaluation" in mu2e_tranad/README.md.
 
 algo:    crv_ml

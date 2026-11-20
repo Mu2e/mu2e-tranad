@@ -2,7 +2,7 @@
 Model bundle: what a trained pipeline run leaves behind for online evaluation
 
 Training is offline (run_pipeline.py --save-model); scoring is one point at a time
-inside the DQM driver (evaluator.py). The bundle carries everything the second needs
+inside the DQM driver (evaluator/ml_evaluator.py). The bundle carries everything the second needs
 from the first, frozen at training time:
   - PCA     - feature list, StandardScaler mean/scale, components, error threshold
   - TranAD  - input columns, sentinel fill values, scaling, weights, threshold

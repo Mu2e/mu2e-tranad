@@ -39,13 +39,13 @@ Run these commands from the CrossExperimentalAIDQM directory. Open `results/<dir
 
 ## Environment
 
-`tranad_model.py` imports the TranAD model from `anldq` in `../src`, so the directory layout in the Quick start is required. `python -m mu2e_tranad` also needs the CrossExperimentalAIDQM directory on `PYTHONPATH` (or as the current directory).
+`training/tranad_model.py` imports the TranAD model from `anldq` in `CrossExperimentalAIDQM/src`, so the directory layout in the Quick start is required. `python -m mu2e_tranad` also needs the CrossExperimentalAIDQM directory on `PYTHONPATH` (or as the current directory).
 
 **Recommended on a Mu2e gpvm: `setup_env.sh`.** This script uses the Mu2e cvmfs `ana` environment (Python 3.12, torch 2.5.1, pandas, scikit-learn, matplotlib). On first use it adds the missing packages to `mu2e_tranad/.ana_extras/`, which is git-ignored:
 
 | Package | Why it is needed |
 |---------|------------------|
-| `seaborn` | Correlation heatmap in `visualization.py` |
+| `seaborn` | Correlation heatmap in `analysis/visualization.py` |
 | `tensorboard` | Imported when `anldq` is imported |
 | `spt3g` (no-op stub) | Imported by the SPT-3G loader in `anldq`, which this pipeline never uses |
 
@@ -72,6 +72,17 @@ This also installs a `mu2e-tranad` console command. Use `-e` (editable): a regul
                                                          TranAD prep ──┼─► TranAD  ├─► vote ─► reports, diagnostics, plots
                                                       (tranad_prep.py) └─► PCA     ┘
 ```
+
+The code is split into four subpackages, in the order the data flows through them:
+
+| Directory | Stage | Phases |
+|-----------|-------|--------|
+| `reading/` | Fetch, filter and load the DQM metrics | 0, 1 |
+| `training/` | Preprocess, prepare the TranAD inputs, fit the detectors, save the model bundle | 2, 2b, 3, 3b |
+| `analysis/` | Diagnostics and plots of the results | 5, 6 |
+| `evaluator/` | Score new DQM points online with a saved bundle (not part of a batch run) | — |
+
+`run_pipeline.py` at the top level runs the batch phases in order and writes the reports (Phase 4).
 
 ### Phase 0 — Fetch (only with `--dqm-source`)
 
@@ -140,7 +151,7 @@ This is not the same as the `drift` check of the DQM `trends` evaluator. That ch
 - `extreme_features.csv` lists the features with extreme z-scores in anomalous rows.
 - `diagnostic_report.txt` is a text summary. It covers how often the detectors agree, a breakdown of the votes, when anomalies occurred, and the features that best separate anomalous rows from normal ones. The same text is printed to the console.
 
-See [DIAGNOSTICS.md](DIAGNOSTICS.md) for how to read these files, and how to use `AnomalyDiagnostics` on its own.
+See [analysis/DIAGNOSTICS.md](analysis/DIAGNOSTICS.md) for how to read these files, and how to use `AnomalyDiagnostics` on its own.
 
 ### Phase 6 — Plots (`visualization.py`, saved to `plots/`, skip with `--no-plots`)
 
@@ -187,12 +198,12 @@ python -m mu2e_tranad (--csv PATH | --dqm-source P,S,A,V) [options]
 
 ```bash
 # Raw matrix only (no detection)
-python -m mu2e_tranad.export_from_dqm --source crvreco,kpp_crv,file,005-001 --output raw.csv \
+python -m mu2e_tranad.reading.export_from_dqm --source crvreco,kpp_crv,file,005-001 --output raw.csv \
     [--group CRV] [--after 2026-03-01T00:00:00] [--before ...] [--url ...]
 
 # Drop static columns (reads dqm_crv_anomaly_dataset_004-000.csv in the current directory,
 # writes ..._filtered.csv; the file names are set at the top of the script)
-python mu2e_tranad/filter_from_dqm.py
+python mu2e_tranad/reading/filter_from_dqm.py
 ```
 
 ---
@@ -212,8 +223,9 @@ main(csv, output_dir="results/005-001",
 You can also run the phases one at a time:
 
 ```python
-from mu2e_tranad import ingestion, preprocessing, models, tranad_prep
-from mu2e_tranad.dqm_mcp import DqmMcpClient, fetch_matrix
+from mu2e_tranad.reading import ingestion
+from mu2e_tranad.training import preprocessing, models, tranad_prep
+from mu2e_tranad.reading.dqm_mcp import DqmMcpClient, fetch_matrix
 
 df = fetch_matrix("crvreco,kpp_crv,file,005-001")            # wide DataFrame
 df, feats = ingestion.ingest_data("data.csv")
@@ -245,15 +257,15 @@ python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,004-000 --output results
     --no-plots --save-model models/crv_ml_v1.pkl
 
 # 2. Configure a driver (copy mu2e_tranad/configs/crv_ml.example.yaml) and check it
-python -m mu2e_tranad.dqm_driver crv_ml.yaml --check
+python -m mu2e_tranad.evaluator.dqm_driver crv_ml.yaml --check
 
 # 3. Run it, from cron; report mode (commit: false) writes nothing to the database
-python -m mu2e_tranad.dqm_driver crv_ml.yaml
+python -m mu2e_tranad.evaluator.dqm_driver crv_ml.yaml
 ```
 
 `dqm_driver` is the DQM `dqm-driver` command with the `crv_ml` algorithm added to its
 registry, so the code does not need to live in the DQM repository. The evaluator
-(`evaluator.py`) reports two subjects:
+(`evaluator/ml_evaluator.py`) reports these subjects:
 
 | Subject | Raised when |
 |---------|-------------|
@@ -290,24 +302,30 @@ point on a gpvm CPU; most of the time goes to importing torch and to the databas
 
 | File | Role |
 |------|------|
-| `__main__.py`, `run_pipeline.py` | Command-line interface and the code that runs each phase in order |
-| `dqm_mcp.py` | JSON-RPC client for the DQM MCP server, and `fetch_matrix()` |
-| `export_from_dqm.py` | Command-line tool to export a DQM source to a CSV |
-| `filter_from_dqm.py` | `filter_static_columns()` and a standalone script for filtering |
-| `ingestion.py` | Phase 1 |
-| `preprocessing.py` | Phase 2 |
-| `tranad_prep.py` | Phase 2b: condition/response split, calibration epochs and row selection; Phase 3b: training drift |
-| `models.py` | Phase 3: Z-score and PCA detectors, and the ensemble |
-| `tranad_model.py` | Wrapper around the `anldq` TranAD model |
-| `diagnostics.py` | Phase 5 |
-| `bundle.py` | Saves and loads the trained models for the online evaluator |
-| `evaluator.py` | `crv_ml` evaluator for the Mu2e DQM driver |
-| `dqm_driver.py` | `dqm-driver` with `crv_ml` registered |
+| `__main__.py`, `run_pipeline.py` | Command-line interface and the code that runs each phase in order; Phase 4 reports |
+| **`reading/`** | |
+| `reading/dqm_mcp.py` | JSON-RPC client for the DQM MCP server, and `fetch_matrix()` (Phase 0) |
+| `reading/export_from_dqm.py` | Command-line tool to export a DQM source to a CSV |
+| `reading/filter_from_dqm.py` | `filter_static_columns()` and a standalone script for filtering |
+| `reading/ingestion.py` | Phase 1 |
+| **`training/`** | |
+| `training/preprocessing.py` | Phase 2 |
+| `training/tranad_prep.py` | Phase 2b: condition/response split, calibration epochs and row selection; Phase 3b: training drift |
+| `training/models.py` | Phase 3: Z-score and PCA detectors, and the ensemble |
+| `training/tranad_model.py` | Wrapper around the `anldq` TranAD model |
+| `training/bundle.py` | Saves and loads the trained models for the online evaluator |
+| **`evaluator/`** | |
+| `evaluator/ml_evaluator.py` | `MLEvaluator`, the `crv_ml` evaluator for the Mu2e DQM driver (also importable as `mu2e_tranad.evaluator.MLEvaluator`) |
+| `evaluator/dqm_driver.py` | `dqm-driver` with `crv_ml` registered |
+| **`analysis/`** | |
+| `analysis/diagnostics.py` | Phase 5 |
+| `analysis/visualization.py` | Phase 6 |
+| [analysis/DIAGNOSTICS.md](analysis/DIAGNOSTICS.md) | Guide to the Phase 5 diagnostics |
+| **Top level** | |
 | `configs/crv_ml.example.yaml` | Example driver config |
-| `visualization.py` | Phase 6 |
+| `configs/periods_005-001.csv` | Example `--periods` file |
 | `setup_env.sh` | Environment for a Mu2e gpvm (see Environment) |
 | `setup.py` | Optional `pip install -e` support |
-| [DIAGNOSTICS.md](DIAGNOSTICS.md) | Guide to the Phase 5 diagnostics |
 
 The pipeline started as a notebook prototype (referred to as "Genesis" in some code comments) that used the Mu2e `DqmTool` exporter. This repository replaces it.
 
@@ -321,4 +339,4 @@ The pipeline started as a notebook prototype (referred to as "Genesis" in some c
 - **PCA keeps every component** (`n_components=None`, and `variance_threshold` is not used), so it reconstructs the data exactly. In the `005-001` run, the reconstruction errors were about 1e-29, which is floating-point noise. The 5% of rows that PCA flags are therefore effectively random until a component count is set.
 - **TranAD trains sequentially, one window at a time, with no batching.** This is fine for thousands of rows but becomes slow on much larger datasets.
 - **The order of rows matters.** TranAD windows are built from consecutive rows, sorted by (run, subrun) when fetched from the MCP server. A CSV you supply yourself should be sorted the same way.
-- **`filter_from_dqm.py` has hard-coded file names** when run as a script.
+- **`reading/filter_from_dqm.py` has hard-coded file names** when run as a script.

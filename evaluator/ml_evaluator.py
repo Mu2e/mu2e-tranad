@@ -34,7 +34,7 @@ run of tranad_outlier findings that cannot be told from a fault. training_drift 
 directly, and names the inputs that moved. It is unlike the `trends` evaluator's drift,
 which compares a metric with its own recent past rather than with the training data.
 
-Run it with python -m mu2e_tranad.dqm_driver <config.yaml>, which is dqm-driver with
+Run it with python -m mu2e_tranad.evaluator.dqm_driver <config.yaml>, which is dqm-driver with
 this algorithm registered.
 """
 
@@ -47,8 +47,8 @@ import numpy as np
 from dqm.errors import DqmConfigError
 from dqm.evaluate.base import LEVELS, Evaluator, Finding, Point
 
-from .bundle import VALID_SUFFIX, load_bundle
-from .tranad_prep import drift_min_points, sentinel_value
+from ..training.bundle import VALID_SUFFIX, load_bundle
+from ..training.tranad_prep import drift_min_points, sentinel_value
 
 LOGGER = logging.getLogger("dqm.evaluate.crv_ml")
 
@@ -143,7 +143,7 @@ class MLEvaluator(Evaluator):
         if t is None:
             raise DqmConfigError("crv_ml: the bundle has no TranAD model; use detectors: [pca]")
         # Imported here so a PCA-only driver never needs torch or anldq
-        from .tranad_model import TRANAD_ANL_AVAILABLE, TranAD, TranADConfig, torch
+        from ..training.tranad_model import TRANAD_ANL_AVAILABLE, TranAD, TranADConfig, torch
         if not TRANAD_ANL_AVAILABLE:
             raise DqmConfigError("crv_ml: TranAD needs torch and anldq "
                                  "(source mu2e_tranad/setup_env.sh)")
