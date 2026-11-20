@@ -108,8 +108,14 @@ def main(csv_path: str,
          train_mode: str = "stratified",
          threshold_mode: str = "heldout",
          seed: int = 0,
+         drift_window: int = 50,
+         drift_sigma: float = 3.0,
          save_model: str = None,
-         source: str = None) -> None:
+         source: str = None,
+         drop_empty: bool = False,
+         scale_by: str = "global",
+         periods_path: str = None,
+         train_clean: float = None) -> None:
     """
     Run complete pipeline.
     
@@ -128,10 +134,24 @@ def main(csv_path: str,
             'random', or 'chronological' (first 30%, original behaviour)
         threshold_mode: 'heldout' (percentile of held-out rows) or 'train' (of training rows)
         seed: Random seed for row selection
+        drift_window: Rows over which the training-drift median is taken
+        drift_sigma: Flag training drift when a feature's window median has moved more
+            than this many training standard deviations from its training median
         save_model: If set, write the trained models here for the online DQM evaluator
             (see bundle.py / evaluator.py)
         source: DQM source the data came from, recorded in the model bundle
+        drop_empty: Set aside subruns with no CRV digis before modelling; they are written
+            to no_crv_data.csv and flagged there instead of being scored
+        scale_by: How TranAD inputs are standardised: 'global' (mean/std of all training
+            rows, the default) or 'period' (robust median/MAD within each detector-
+            configuration period from periods_path)
+        periods_path: CSV of configuration periods (first_run,last_run,label)
+        train_clean: If set, leave out of TranAD training any row with an input beyond this
+            many robust sigma within its period (a proxy for known-good data)
     """
+    if save_model and (scale_by != "global" or drop_empty or train_clean):
+        raise ValueError("--save-model supports only the default scaling for now "
+                         "(the online evaluator has no per-period scaling yet)")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -169,6 +189,13 @@ def main(csv_path: str,
     print("\n[PHASE 2b] TRANAD INPUTS & CALIBRATION EPOCHS")
     print("-" * 70)
     df_clean = df_clean.reset_index(drop=True)
+    if drop_empty:
+        empty = tranad_prep.no_crv_data_mask(df_clean)
+        df_clean.loc[empty].to_csv(output_dir / "no_crv_data.csv", index=False)
+        print(f"No CRV data: {int(empty.sum())} rows in {df_clean.loc[empty, 'run'].nunique()} runs "
+              f"set aside (no_crv_data.csv)")
+        df_clean = df_clean.loc[~empty].reset_index(drop=True)
+        X_scaled = X_scaled[~empty]
     condition_feats, response_feats = tranad_prep.split_condition_features(active_features)
     epochs, epoch_summary = tranad_prep.detect_calibration_epochs(df_clean, condition_feats)
     df_clean['calib_epoch'] = epochs
@@ -201,6 +228,23 @@ def main(csv_path: str,
     print(f"TranAD rows: {train_mode} -> {len(train_idx)} train, {len(val_idx)} threshold-validation")
     X_tranad = (X_scaled if X_tranad_raw is None
                 else tranad_prep.scale_on_rows(X_tranad_raw, train_idx))
+    X_drift = X_tranad  # drift keeps the global scaling: its job is to see period changes
+    if scale_by == "period":
+        if X_tranad_raw is None or not periods_path:
+            raise ValueError("--scale-by period needs --periods and response/changes features")
+        periods = tranad_prep.load_periods(periods_path)
+        groups = tranad_prep.period_labels(df_clean["run"].to_numpy(), periods)
+        df_clean["config_period"] = [periods.label[g] if g >= 0 else "" for g in groups]
+        X_tranad = tranad_prep.scale_by_groups(X_tranad_raw, groups, train_idx)
+        print(f"TranAD inputs scaled within {len(periods)} configuration periods "
+              f"({int((groups < 0).sum())} rows outside every period use the global scale)")
+    elif scale_by != "global":
+        raise ValueError(f"Unknown scale_by: {scale_by}")
+    if train_clean:
+        valid_cols = np.array([c.endswith(tranad_prep.VALID_SUFFIX) for c in tranad_cols])
+        before = len(train_idx)
+        train_idx = tranad_prep.clean_rows(X_tranad, train_idx, train_clean, valid_cols)
+        print(f"Clean training rows (no input beyond {train_clean} sigma): {len(train_idx)} of {before}")
     if threshold_mode not in ("heldout", "train"):
         raise ValueError(f"Unknown threshold_mode: {threshold_mode}")
 
@@ -216,10 +260,35 @@ def main(csv_path: str,
         tranad_val_idx=val_idx if threshold_mode == "heldout" else None
     )
     
+    # Training drift, measured on the inputs the online evaluator will see: TranAD's
+    # (standardised on its training rows), else PCA's (fitted on every row)
+    if model_results.get("tranad_detector") is not None:
+        Z, drift_cols, drift_rows = X_drift, tranad_cols or active_features, train_idx
+    else:
+        Z, drift_cols, drift_rows = X_scaled, active_features, np.arange(len(X_scaled))
+    drift_center = tranad_prep.drift_center(Z, drift_rows)
+    shift = tranad_prep.rolling_drift(Z, drift_center, drift_window)
+    shift[:, [c.endswith(tranad_prep.VALID_SUFFIX) for c in drift_cols]] = 0.0
+    abs_shift = np.nan_to_num(np.abs(shift), nan=0.0)
+    df_clean['drift_max_shift'] = abs_shift.max(axis=1)
+    df_clean['drift_worst_feature'] = np.array(drift_cols)[abs_shift.argmax(axis=1)]
+    df_clean['drift_n_features'] = (abs_shift > drift_sigma).sum(axis=1)
+    df_clean['training_drift'] = (df_clean['drift_n_features'] > 0).astype(int)
+    drifted = df_clean['training_drift'] == 1
+    print(f"\nTraining drift (median of {drift_window} rows vs training, > {drift_sigma} sigma): "
+          f"{int(drifted.sum())} rows ({100 * drifted.mean():.1f}%)")
+    if drifted.any():
+        first = df_clean[drifted].iloc[0]
+        print(f"  first at run {first['run']}"
+              f"{':%s' % first['subrun'] if 'subrun' in df_clean else ''}, worst "
+              f"{first['drift_worst_feature']} ({first['drift_max_shift']:.1f} sigma)")
+
     if save_model:
         bundle.save_bundle(save_model, df_clean, active_features, scaler, model_results,
                            tranad_features, tranad_cols, X_tranad_raw, train_idx,
-                           source=source or csv_path)
+                           source=source or csv_path,
+                           drift={"center": drift_center, "window": drift_window,
+                                  "sigma": drift_sigma})
 
     # =========================================================================
     # PHASE 4: REPORTING
@@ -388,10 +457,44 @@ Examples:
         help="Random seed for TranAD row selection (default: 0)"
     )
     parser.add_argument(
+        "--drift-window",
+        type=int,
+        default=50,
+        help="Rows over which training drift is measured (default: 50)"
+    )
+    parser.add_argument(
+        "--drift-sigma",
+        type=float,
+        default=3.0,
+        help="Flag training drift beyond this many training standard deviations (default: 3.0)"
+    )
+    parser.add_argument(
         "--save-model",
         type=str,
         help="Write the trained models to this file, for the online DQM evaluator "
              "(dqm_pipeline/evaluator.py)"
+    )
+    parser.add_argument(
+        "--drop-empty",
+        action="store_true",
+        help="Set aside subruns with no CRV digis (written to no_crv_data.csv) before modelling"
+    )
+    parser.add_argument(
+        "--scale-by",
+        choices=["global", "period"],
+        default="global",
+        help="Standardise TranAD inputs over all training rows (default) or within each "
+             "detector-configuration period given by --periods (robust median/MAD)"
+    )
+    parser.add_argument(
+        "--periods",
+        type=str,
+        help="CSV of configuration periods: first_run,last_run,label"
+    )
+    parser.add_argument(
+        "--train-clean",
+        type=float,
+        help="Leave out of TranAD training rows with any input beyond this many robust sigma"
     )
     parser.add_argument(
         "--apply-iqr",
@@ -431,8 +534,14 @@ Examples:
             train_mode=args.train_mode,
             threshold_mode=args.threshold_mode,
             seed=args.seed,
+            drift_window=args.drift_window,
+            drift_sigma=args.drift_sigma,
             save_model=args.save_model,
-            source=args.dqm_source
+            source=args.dqm_source,
+            drop_empty=args.drop_empty,
+            scale_by=args.scale_by,
+            periods_path=args.periods,
+            train_clean=args.train_clean
         )
     except Exception as e:
         print(f"\n✗ Error: {e}", file=sys.stderr)

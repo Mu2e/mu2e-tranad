@@ -6,6 +6,7 @@ inside the DQM driver (evaluator.py). The bundle carries everything the second n
 from the first, frozen at training time:
   - PCA     - feature list, StandardScaler mean/scale, components, error threshold
   - TranAD  - input columns, sentinel fill values, scaling, weights, threshold
+  - drift   - training medians of the reference inputs (TranAD's, else PCA's), window, sigma
 
 Arrays are stored as numpy and the TranAD weights as a numpy state_dict, so loading
 needs neither sklearn pickles nor a matching torch build.
@@ -22,7 +23,7 @@ import pandas as pd
 from . import tranad_prep
 
 FORMAT = 1
-VALID_SUFFIX = "__valid"
+VALID_SUFFIX = tranad_prep.VALID_SUFFIX
 
 
 def save_bundle(path: str,
@@ -34,8 +35,12 @@ def save_bundle(path: str,
                 tranad_cols: Optional[List[str]],
                 X_tranad_raw: Optional[np.ndarray],
                 train_idx: np.ndarray,
-                source: Optional[str] = None) -> dict:
-    """Write the bundle for this training run and return it."""
+                source: Optional[str] = None,
+                drift: Optional[dict] = None) -> dict:
+    """
+    Write the bundle for this training run and return it. `drift` holds 'center' (one
+    training median per reference input), 'window' and 'sigma', as in run_pipeline.
+    """
     if tranad_features == "changes":
         # Condition changes are relative to a calibration epoch found over the whole
         # dataset; a single online point has no such reference yet.
@@ -57,6 +62,7 @@ def save_bundle(path: str,
             "threshold": float(pca.reconstruction_error_threshold_),
         },
         "tranad": None,
+        "drift": None,
     }
 
     tranad = model_results.get("tranad_detector")
@@ -83,6 +89,10 @@ def save_bundle(path: str,
                            for k, v in tranad.model.state_dict().items()},
             "threshold": float(tranad.threshold),
         }
+
+    if drift is not None:
+        bundle["drift"] = {"center": np.asarray(drift["center"], dtype=float),
+                           "window": int(drift["window"]), "sigma": float(drift["sigma"])}
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -56,6 +56,12 @@ EOF
 fi
 
 export PYTHONPATH="$_REPO:$_EXTRAS${PYTHONPATH:+:$PYTHONPATH}"
+
+# Mu2e/DQM python package (dqm.evaluate), for the online evaluator in
+# dqm_pipeline/evaluator.py; a clone of github.com/Mu2e/DQM at $_REPO/DQM
+if [ -d "$_REPO/DQM/python/dqm" ]; then
+    export PYTHONPATH="$_REPO/DQM/python:$PYTHONPATH"
+fi
 export MPLBACKEND=Agg
 export PYTHONWARNINGS=ignore
 

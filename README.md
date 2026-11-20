@@ -122,9 +122,17 @@ Recalibrations are expected events, but TranAD would flag every one of them as a
 
 The first 4 rows (the window length) always have a TranAD score of 0.
 
+### Phase 3b — Training drift (`tranad_prep.py`)
+
+TranAD's scaling and threshold are fixed when it is trained. When a metric drifts slowly away from the training data, TranAD eventually flags it as a run of anomalies, and those flags look the same as a fault. The drift check reports this case directly. For each row and each input, it takes the median of the last `--drift-window` rows (default 50) and compares it with that input's median on the training rows, in units of the training standard deviation. A row is flagged when any input has moved more than `--drift-sigma` (default 3.0). The median ignores single anomalous rows, so only sustained shifts count.
+
+Drift is measured on the TranAD inputs, standardised the same way as for TranAD. If TranAD did not run, it uses the inputs that Z-score and PCA use. The `__valid` flags are not measured; drift in a sentinel feature shows up in the feature itself. Rows with fewer than half a window of rows before them are not scored.
+
+This is not the same as the `drift` check of the DQM `trends` evaluator. That check compares a metric with its own recent past. This one compares it with the data the model was trained on, so it answers the question "is it time to retrain?".
+
 ### Phase 4 — Reports
 
-`anomaly_report_<YYYYMMDD_HHMMSS>.csv` contains every row with all of its original features. It adds `calib_epoch`, `anomaly` (equal to `tranad_anomaly`), the prediction and score columns listed above, and `ensemble_voting_score`. `..._anomalies_only.csv` contains only the rows where `anomaly == 1`.
+`anomaly_report_<YYYYMMDD_HHMMSS>.csv` contains every row with all of its original features. It adds `calib_epoch`, `anomaly` (equal to `tranad_anomaly`), the prediction and score columns listed above, and `ensemble_voting_score`. It also adds the drift columns: `training_drift` (0/1), `drift_max_shift` (the largest shift, in training standard deviations), `drift_worst_feature` and `drift_n_features` (the number of inputs beyond `--drift-sigma`). `..._anomalies_only.csv` contains only the rows where `anomaly == 1`.
 
 ### Phase 5 — Diagnostics (`diagnostics.py`, saved to `diagnostics/`)
 
@@ -169,6 +177,8 @@ python -m dqm_pipeline (--csv PATH | --dqm-source P,S,A,V) [options]
 | `--threshold-percentile` | `99.5` | Percentile of TranAD error used as the threshold. Lower values flag more rows. |
 | `--voting-threshold` | `2.0` | Number of detectors that must agree for the ensemble |
 | `--seed` | `0` | Random seed for selecting TranAD rows |
+| `--drift-window` | `50` | Number of rows in the training-drift median (see Phase 3b). Also saved as the evaluator's default. |
+| `--drift-sigma` | `3.0` | Training standard deviations an input's median can move before it counts as drift. Also saved as the evaluator's default. |
 | `--apply-iqr` / `--iqr K` | off / `1.5` | Remove IQR outliers before detection. Use only to clean training data. |
 | `--no-plots` | — | Skip Phase 6, which is the slowest step for wide datasets |
 | `--save-model PATH` | — | Save the trained models for the online evaluator (see Online evaluation) |
@@ -249,6 +259,7 @@ registry, so the code does not need to live in the DQM repository. The evaluator
 |---------|-------------|
 | `tranad_outlier` | TranAD's reconstruction error for the point, from it and the 4 points before it, is above the trained threshold |
 | `pca_outlier` | The PCA reconstruction error is above the trained threshold. Refused until PCA keeps fewer components (see Known limitations). |
+| `training_drift` | Over the point and the `drift_window − 1` points before it, the median of some input has moved more than `drift_sigma` training standard deviations from its training median (see Phase 3b). Needs a bundle saved with this version. |
 
 Each finding names the `top_causes` worst-reconstructed metrics as its causes, and its note
 holds the score, the threshold, those metrics' values and errors, and the training date.
@@ -259,6 +270,11 @@ point on a gpvm CPU; most of the time goes to importing torch and to the databas
 - **Start with a floor.** Set `min_time` (or `min_run`) to the go-live date. Without one, the
   first invocations examine the whole back history and open an alarm episode for every old
   anomaly. To look at the history, run in report mode first.
+- **Retrain when `training_drift` stays open.** An episode that lasts means the detector has
+  moved away from the data the model learned. Its `tranad_outlier` findings then reflect that
+  move rather than faults. Retrain on recent data (`--dqm-source ... --after <date>`) and bump
+  `config`. Before going live, check the `training_drift` column of a batch run on the
+  history to choose `drift_sigma`.
 - **Retrain when the metrics change.** The bundle stores the feature names it was trained on.
   A point that lacks one of them, or has one flagged by its producer, is skipped and the skip is
   logged. New metrics are ignored. After retraining, change `config` (for example
@@ -280,7 +296,7 @@ point on a gpvm CPU; most of the time goes to importing torch and to the databas
 | `filter_from_dqm.py` | `filter_static_columns()` and a standalone script for filtering |
 | `ingestion.py` | Phase 1 |
 | `preprocessing.py` | Phase 2 |
-| `tranad_prep.py` | Phase 2b: condition/response split, calibration epochs and row selection |
+| `tranad_prep.py` | Phase 2b: condition/response split, calibration epochs and row selection; Phase 3b: training drift |
 | `models.py` | Phase 3: Z-score and PCA detectors, and the ensemble |
 | `tranad_model.py` | Wrapper around the `anldq` TranAD model |
 | `diagnostics.py` | Phase 5 |

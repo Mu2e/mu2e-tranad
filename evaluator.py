@@ -14,15 +14,25 @@ a gpvm cron job (CPU, a few ms per point; the cost is importing torch).
 
     pars:
       model: /exp/mu2e/app/users/.../crv_ml_v1.pkl   # from --save-model
-      detectors: [tranad]        # and/or pca
+      detectors: [tranad, drift] # any of tranad, pca, drift
       level: warn                # severity of a finding
       threshold_scale: 1.0       # multiply the trained thresholds (>1 = fewer findings)
-      top_causes: 5              # metrics named as causes, by reconstruction error
+      top_causes: 5              # metrics named as causes, by reconstruction error / shift
+      drift_window: 50           # points in the drift median; default from the bundle
+      drift_sigma: 3.0           # training stds a median may move; default from the bundle
 
 Subjects:
 
     tranad_outlier   the point is poorly reconstructed by TranAD from the ones before it
     pca_outlier      the point is far from the PCA subspace of the training data
+    training_drift   over the last drift_window points, some input's median has moved
+                     more than drift_sigma training stds from its training median: the
+                     data no longer looks like what the model learned, so retrain
+
+TranAD's threshold and scaling are frozen at training time, so a slow drift ends as a
+run of tranad_outlier findings that cannot be told from a fault. training_drift says so
+directly, and names the inputs that moved. It is unlike the `trends` evaluator's drift,
+which compares a metric with its own recent past rather than with the training data.
 
 Run it with python -m dqm_pipeline.dqm_driver <config.yaml>, which is dqm-driver with
 this algorithm registered.
@@ -38,21 +48,21 @@ from dqm.errors import DqmConfigError
 from dqm.evaluate.base import LEVELS, Evaluator, Finding, Point
 
 from .bundle import VALID_SUFFIX, load_bundle
-from .tranad_prep import sentinel_value
+from .tranad_prep import drift_min_points, sentinel_value
 
 LOGGER = logging.getLogger("dqm.evaluate.crv_ml")
 
 __all__ = ["MLEvaluator"]
 
-DETECTORS = ("tranad", "pca")
+DETECTORS = ("tranad", "pca", "drift")
 
 
 class MLEvaluator(Evaluator):
     """Flag points the trained TranAD / PCA models find anomalous."""
 
     algo = "crv_ml"
-    subjects = ("tranad_outlier", "pca_outlier")
-    lookback = 4  # replaced by the bundle's TranAD window in configure()
+    subjects = ("tranad_outlier", "pca_outlier", "training_drift")
+    lookback = 4  # replaced in configure() by what the chosen detectors need
 
     def configure(self) -> None:
         path = self.pars.get("model")
@@ -93,15 +103,40 @@ class MLEvaluator(Evaluator):
             raise DqmConfigError("crv_ml: threshold_scale must be > 0 and top_causes >= 1")
 
         self._model = None
+        self.lookback = 0
         if "tranad" in self._detectors:
             self._model = self._load_tranad()
             self.lookback = self._bundle["tranad"]["n_window"]
-        else:
-            self.lookback = 0
+        if "drift" in self._detectors:
+            self._configure_drift()
+            self.lookback = max(self.lookback, self._drift_window - 1)
 
         LOGGER.info("crv_ml: model %s (trained %s on %s, %s rows), detectors %s",
                     path, self._bundle["created"], self._bundle["source"],
                     self._bundle["rows"], ",".join(self._detectors))
+
+    def _configure_drift(self) -> None:
+        d = self._bundle.get("drift")
+        if d is None:
+            raise DqmConfigError("crv_ml: the bundle has no drift reference; "
+                                 "retrain with --save-model to add one")
+        try:
+            self._drift_window = int(self.pars.get("drift_window", d["window"]))
+            self._drift_sigma = float(self.pars.get("drift_sigma", d["sigma"]))
+        except (TypeError, ValueError) as exc:
+            raise DqmConfigError(f"crv_ml: {exc}") from exc
+        if self._drift_window < 2 or self._drift_sigma <= 0:
+            raise DqmConfigError("crv_ml: drift_window must be >= 2 and drift_sigma > 0")
+        # The same inputs and scaling the drift reference was measured on in training
+        t = self._bundle["tranad"]
+        if t is not None:
+            inputs, mean, std, fill = t["inputs"], t["mean"], t["std"], t["fill"]
+        else:
+            p = self._bundle["pca"]
+            inputs, mean, std, fill = p["features"], p["mean"], p["scale"], {}
+        if len(d["center"]) != len(inputs):
+            raise DqmConfigError("crv_ml: the bundle's drift reference does not match its inputs")
+        self._drift_ref = (inputs, mean, std, fill, d["center"])
 
     def _load_tranad(self):
         t = self._bundle["tranad"]
@@ -188,6 +223,48 @@ class MLEvaluator(Evaluator):
         err = (z - z @ p["components"].T @ p["components"]) ** 2
         return err, err.sum(), vids, p["threshold"]
 
+    def _drift(self, point: Point, history: Sequence[Point]):
+        """
+        Per-input shift of the window median from the training median (training stds),
+        the vids behind the inputs, and the window length; or None.
+        """
+        inputs, mean, std, fill, center = self._drift_ref
+        x, vids, missing = self._vector(point, inputs, fill)
+        if x is None:
+            LOGGER.info("%s: drift skipped, %s missing or flagged", point.label, missing)
+            return None
+        rows = [x]
+        for p in history[-(self._drift_window - 1):]:
+            y, _, _ = self._vector(p, inputs, fill)
+            if y is not None:
+                rows.append(y)
+        if len(rows) < drift_min_points(self._drift_window):
+            LOGGER.debug("%s: %d usable point(s) for drift, need %d -- skipping", point.label,
+                         len(rows), drift_min_points(self._drift_window))
+            return None
+        shift = np.median((np.stack(rows) - mean) / std, axis=0) - center
+        # A validity flag's median is 0 or 1; its feature's own shift carries the drift
+        shift[[f.endswith(VALID_SUFFIX) for f in inputs]] = 0.0
+        return shift, vids, len(rows)
+
+    def _drift_finding(self, point: Point, scored) -> Optional[Finding]:
+        shift, vids, n = scored
+        drifted = [i for i in np.argsort(-np.abs(shift)) if abs(shift[i]) > self._drift_sigma]
+        if not drifted:
+            return None
+        detail = [{"metric": point.name(vids[i]), "vid": vids[i],
+                   "value": point[vids[i]].valuex, "shift": float(shift[i])}
+                  for i in drifted[:self._top]]
+        LOGGER.info("%s: training_drift in %d input(s) over %d points -- worst %s (%+.1f sigma)",
+                    point.label, len(drifted), n,
+                    "/".join(detail[0]["metric"].split("/")[-2:]), detail[0]["shift"])
+        note = {"drifted": len(drifted), "sigma": self._drift_sigma, "window": n,
+                "top": detail,
+                "model": {"created": self._bundle["created"], "source": self._bundle["source"]}}
+        return self.finding("training_drift",
+                            *[point.cause(d["vid"], level=self._level) for d in detail],
+                            note=json.dumps(note))
+
     def _finding(self, subject: str, point: Point, scored) -> Optional[Finding]:
         err, score, vids, threshold = scored
         threshold *= self._scale
@@ -226,4 +303,8 @@ class MLEvaluator(Evaluator):
             scored = self._pca(point)
             if scored is not None:
                 findings.append(self._finding("pca_outlier", point, scored))
+        if "drift" in self._detectors:
+            scored = self._drift(point, history)
+            if scored is not None:
+                findings.append(self._drift_finding(point, scored))
         return [f for f in findings if f is not None]

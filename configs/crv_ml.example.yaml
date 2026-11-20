@@ -20,7 +20,9 @@ log_level: INFO
 
 pars:
   model: /exp/mu2e/app/users/CHANGE_ME/models/crv_ml_v1.pkl   # from --save-model
-  detectors: [tranad]        # pca only after it is retrained with fewer components
+  detectors: [tranad, drift] # pca only after it is retrained with fewer components
   level: warn
   threshold_scale: 1.0
   top_causes: 5
+  # drift_window: 50         # training-drift median length; default from the bundle
+  # drift_sigma:  3.0        # training stds before it counts as drift; default from the bundle
