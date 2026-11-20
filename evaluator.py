@@ -1,7 +1,7 @@
 """
 The `crv_ml` evaluator: score each new DQM point with the trained pipeline models
 
-Plugs dqm_pipeline into the Mu2e DQM evaluation framework (Mu2e/DQM,
+Plugs mu2e_tranad into the Mu2e DQM evaluation framework (Mu2e/DQM,
 python/dqm/evaluate). Training stays offline in run_pipeline.py --save-model; this
 class only loads that bundle and judges one point at a time, so it is cheap enough for
 a gpvm cron job (CPU, a few ms per point; the cost is importing torch).
@@ -34,7 +34,7 @@ run of tranad_outlier findings that cannot be told from a fault. training_drift 
 directly, and names the inputs that moved. It is unlike the `trends` evaluator's drift,
 which compares a metric with its own recent past rather than with the training data.
 
-Run it with python -m dqm_pipeline.dqm_driver <config.yaml>, which is dqm-driver with
+Run it with python -m mu2e_tranad.dqm_driver <config.yaml>, which is dqm-driver with
 this algorithm registered.
 """
 
@@ -146,7 +146,7 @@ class MLEvaluator(Evaluator):
         from .tranad_model import TRANAD_ANL_AVAILABLE, TranAD, TranADConfig, torch
         if not TRANAD_ANL_AVAILABLE:
             raise DqmConfigError("crv_ml: TranAD needs torch and anldq "
-                                 "(source dqm_pipeline/setup_env.sh)")
+                                 "(source mu2e_tranad/setup_env.sh)")
         model = TranAD(input_dims=len(t["inputs"]),
                        arch_config=TranADConfig(n_window=t["n_window"], **t["arch"]))
         model.load_state_dict({k: torch.from_numpy(v) for k, v in t["state_dict"].items()})

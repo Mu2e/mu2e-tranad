@@ -371,9 +371,9 @@ def cli():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m dqm_pipeline --csv data.csv
-  python -m dqm_pipeline --dqm-source crvreco,kpp_crv,file,004-000
-  python -m dqm_pipeline --csv data.csv --output ./results --iqr 1.5 --plots
+  python -m mu2e_tranad --csv data.csv
+  python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,004-000
+  python -m mu2e_tranad --csv data.csv --output ./results --iqr 1.5 --plots
         """
     )
     
@@ -472,7 +472,7 @@ Examples:
         "--save-model",
         type=str,
         help="Write the trained models to this file, for the online DQM evaluator "
-             "(dqm_pipeline/evaluator.py)"
+             "(mu2e_tranad/evaluator.py)"
     )
     parser.add_argument(
         "--drop-empty",

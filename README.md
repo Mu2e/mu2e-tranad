@@ -1,17 +1,17 @@
-# dqm_pipeline — CRV DQM anomaly detection
+# mu2e-tranad — CRV DQM anomaly detection
 
-`dqm_pipeline` flags anomalous run/subruns in Mu2e Cosmic Ray Veto (CRV) Data Quality Monitoring metrics. It takes the per-subrun CRV metrics from the DQM database as a time series, then runs three detectors over them: a Z-score check, a PCA reconstruction check and a TranAD transformer. **TranAD is the primary detector.** The other two act as cross-checks.
+`mu2e-tranad` flags anomalous run/subruns in Mu2e Cosmic Ray Veto (CRV) Data Quality Monitoring metrics. It takes the per-subrun CRV metrics from the DQM database as a time series, then runs three detectors over them: a Z-score check, a PCA reconstruction check and a TranAD transformer. **TranAD is the primary detector.** The other two act as cross-checks.
 
 ---
 
 ## Quick start
 
-TranAD comes from the `anldq` package in the ANL [CrossExperimentalAIDQM](https://github.com/anl-hep-ai-ml/CrossExperimentalAIDQM) repository, which needs access. Clone this repository **inside** a CrossExperimentalAIDQM checkout, **as `dqm_pipeline/`**:
+TranAD comes from the `anldq` package in the ANL [CrossExperimentalAIDQM](https://github.com/anl-hep-ai-ml/CrossExperimentalAIDQM) repository, which needs access. Clone this repository **inside** a CrossExperimentalAIDQM checkout, **as `mu2e_tranad/`** (underscore: the repository is `mu2e-tranad`, but the directory is also the Python package, and a package name cannot contain a hyphen):
 
 ```
 CrossExperimentalAIDQM/        <- ANL repository
 ├── src/anldq/                 <- provides TranAD
-└── dqm_pipeline/              <- this repository
+└── mu2e_tranad/               <- this repository
 ```
 
 On a Mu2e gpvm (CPU is enough):
@@ -19,29 +19,29 @@ On a Mu2e gpvm (CPU is enough):
 ```bash
 git clone git@github.com:anl-hep-ai-ml/CrossExperimentalAIDQM.git
 cd CrossExperimentalAIDQM
-git clone https://github.com/sophiemiddleton/Mu2e-TranADDQM.git dqm_pipeline
+git clone https://github.com/sophiemiddleton/mu2e-tranad.git mu2e_tranad
 
-source dqm_pipeline/setup_env.sh      # must print "dqm_pipeline env ready (TranAD available)"
+source mu2e_tranad/setup_env.sh      # must print "mu2e_tranad env ready (TranAD available)"
 
 # Fetch a DQM source and analyse it (needs the FNAL network, see Environment)
-python -m dqm_pipeline --dqm-source crvreco,kpp_crv,file,005-001 --output results/crvreco_005-001
+python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,005-001 --output results/crvreco_005-001
 
 # ...or analyse a CSV you already have, for example the filtered CSV saved by the run above
-python -m dqm_pipeline --csv results/crvreco_005-001/dqm_crvreco_kpp_crv_file_005-001_filtered.csv \
+python -m mu2e_tranad --csv results/crvreco_005-001/dqm_crvreco_kpp_crv_file_005-001_filtered.csv \
     --output results/rerun_005-001
 ```
 
 Run these commands from the CrossExperimentalAIDQM directory. Open `results/<dir>/anomaly_report_*_anomalies_only.csv` and `results/<dir>/diagnostics/diagnostic_report.txt` first.
 
-> **If TranAD cannot be imported, it is silently disabled.** When `torch` or `anldq` cannot be imported, the pipeline prints `⚠️ ANL package not available` (or `PyTorch not available`) and still runs. Every TranAD score and prediction is then 0, so the primary `anomaly` column contains no anomalies. The usual causes are skipping `setup_env.sh`, cloning this repository under a name other than `dqm_pipeline`, or cloning it outside CrossExperimentalAIDQM.
+> **If TranAD cannot be imported, it is silently disabled.** When `torch` or `anldq` cannot be imported, the pipeline prints `⚠️ ANL package not available` (or `PyTorch not available`) and still runs. Every TranAD score and prediction is then 0, so the primary `anomaly` column contains no anomalies. The usual causes are skipping `setup_env.sh`, cloning this repository under a name other than `mu2e_tranad`, or cloning it outside CrossExperimentalAIDQM.
 
 ---
 
 ## Environment
 
-`tranad_model.py` imports the TranAD model from `anldq` in `../src`, so the directory layout in the Quick start is required. `python -m dqm_pipeline` also needs the CrossExperimentalAIDQM directory on `PYTHONPATH` (or as the current directory).
+`tranad_model.py` imports the TranAD model from `anldq` in `../src`, so the directory layout in the Quick start is required. `python -m mu2e_tranad` also needs the CrossExperimentalAIDQM directory on `PYTHONPATH` (or as the current directory).
 
-**Recommended on a Mu2e gpvm: `setup_env.sh`.** This script uses the Mu2e cvmfs `ana` environment (Python 3.12, torch 2.5.1, pandas, scikit-learn, matplotlib). On first use it adds the missing packages to `dqm_pipeline/.ana_extras/`, which is git-ignored:
+**Recommended on a Mu2e gpvm: `setup_env.sh`.** This script uses the Mu2e cvmfs `ana` environment (Python 3.12, torch 2.5.1, pandas, scikit-learn, matplotlib). On first use it adds the missing packages to `mu2e_tranad/.ana_extras/`, which is git-ignored:
 
 | Package | Why it is needed |
 |---------|------------------|
@@ -54,10 +54,10 @@ The script also puts CrossExperimentalAIDQM and the extras on `PYTHONPATH`, and 
 **Alternative: your own Python environment.** Use the ANL conda environment (`envs/anldq_gpu.yml` in CrossExperimentalAIDQM), or install the dependencies yourself:
 
 ```bash
-pip install -e "./dqm_pipeline[tranad]"   # from CrossExperimentalAIDQM; pandas, numpy, scikit-learn, matplotlib, seaborn, torch, tensorboard
+pip install -e "./mu2e_tranad[tranad]"   # from CrossExperimentalAIDQM; pandas, numpy, scikit-learn, matplotlib, seaborn, torch, tensorboard
 ```
 
-This also installs a `dqm_pipeline` console command. Use `-e` (editable): a regular install copies the package away from `../src`, so `anldq` is no longer found. If you don't use the ANL conda environment, you may also need the `spt3g` stub from `setup_env.sh`.
+This also installs a `mu2e-tranad` console command. Use `-e` (editable): a regular install copies the package away from `../src`, so `anldq` is no longer found. If you don't use the ANL conda environment, you may also need the `spt3g` stub from `setup_env.sh`.
 
 **DQM MCP server.** `--dqm-source` and `export_from_dqm` fetch data from the DQM MCP server at `http://mu2eaigpvm01.fnal.gov:8001/mcp`, which is only reachable from the FNAL network. Outside FNAL, use `--csv` with a CSV exported on site. To use a different server, set `DQM_MCP_URL`. The client only uses the Python standard library, so no extra packages are required.
 
@@ -161,7 +161,7 @@ The threshold line on the TranAD plot is the threshold the model actually used. 
 ## Command-line reference
 
 ```
-python -m dqm_pipeline (--csv PATH | --dqm-source P,S,A,V) [options]
+python -m mu2e_tranad (--csv PATH | --dqm-source P,S,A,V) [options]
 ```
 
 | Option | Default | Description |
@@ -187,12 +187,12 @@ python -m dqm_pipeline (--csv PATH | --dqm-source P,S,A,V) [options]
 
 ```bash
 # Raw matrix only (no detection)
-python -m dqm_pipeline.export_from_dqm --source crvreco,kpp_crv,file,005-001 --output raw.csv \
+python -m mu2e_tranad.export_from_dqm --source crvreco,kpp_crv,file,005-001 --output raw.csv \
     [--group CRV] [--after 2026-03-01T00:00:00] [--before ...] [--url ...]
 
 # Drop static columns (reads dqm_crv_anomaly_dataset_004-000.csv in the current directory,
 # writes ..._filtered.csv; the file names are set at the top of the script)
-python dqm_pipeline/filter_from_dqm.py
+python mu2e_tranad/filter_from_dqm.py
 ```
 
 ---
@@ -200,7 +200,7 @@ python dqm_pipeline/filter_from_dqm.py
 ## Python API
 
 ```python
-from dqm_pipeline.run_pipeline import main, fetch_from_dqm
+from mu2e_tranad.run_pipeline import main, fetch_from_dqm
 
 csv = fetch_from_dqm("crvreco,kpp_crv,file,005-001", "results/005-001")
 main(csv, output_dir="results/005-001",
@@ -212,8 +212,8 @@ main(csv, output_dir="results/005-001",
 You can also run the phases one at a time:
 
 ```python
-from dqm_pipeline import ingestion, preprocessing, models, tranad_prep
-from dqm_pipeline.dqm_mcp import DqmMcpClient, fetch_matrix
+from mu2e_tranad import ingestion, preprocessing, models, tranad_prep
+from mu2e_tranad.dqm_mcp import DqmMcpClient, fetch_matrix
 
 df = fetch_matrix("crvreco,kpp_crv,file,005-001")            # wide DataFrame
 df, feats = ingestion.ingest_data("data.csv")
@@ -238,17 +238,17 @@ together with the points before it, and commits what it reports as alarms. Train
 here, offline:
 
 ```bash
-source dqm_pipeline/setup_env.sh      # also puts ./DQM/python (a Mu2e/DQM clone) on PYTHONPATH
+source mu2e_tranad/setup_env.sh      # also puts ./DQM/python (a Mu2e/DQM clone) on PYTHONPATH
 
 # 1. Train and save the models (TranAD threshold, scaling and weights are frozen here)
-python -m dqm_pipeline --dqm-source crvreco,kpp_crv,file,004-000 --output results/004-000 \
+python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,004-000 --output results/004-000 \
     --no-plots --save-model models/crv_ml_v1.pkl
 
-# 2. Configure a driver (copy dqm_pipeline/configs/crv_ml.example.yaml) and check it
-python -m dqm_pipeline.dqm_driver crv_ml.yaml --check
+# 2. Configure a driver (copy mu2e_tranad/configs/crv_ml.example.yaml) and check it
+python -m mu2e_tranad.dqm_driver crv_ml.yaml --check
 
 # 3. Run it, from cron; report mode (commit: false) writes nothing to the database
-python -m dqm_pipeline.dqm_driver crv_ml.yaml
+python -m mu2e_tranad.dqm_driver crv_ml.yaml
 ```
 
 `dqm_driver` is the DQM `dqm-driver` command with the `crv_ml` algorithm added to its

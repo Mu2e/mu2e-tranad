@@ -5,13 +5,13 @@ Setup script for DQM Anomaly Detection Pipeline
 from setuptools import setup
 
 setup(
-    name="dqm_pipeline",
+    name="mu2e-tranad",
     version="0.1.0",
     description="DQM anomaly detection pipeline for Mu2e CRV detector",
     author="Sophie",
     # This repo *is* the package directory, so map the package to the repo root.
-    packages=["dqm_pipeline"],
-    package_dir={"dqm_pipeline": "."},
+    packages=["mu2e_tranad"],
+    package_dir={"mu2e_tranad": "."},
     python_requires=">=3.9",
     install_requires=[
         "pandas>=1.0",
@@ -34,7 +34,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "dqm_pipeline=dqm_pipeline.run_pipeline:cli",
+            "mu2e-tranad=mu2e_tranad.run_pipeline:cli",
         ],
     },
     classifiers=[

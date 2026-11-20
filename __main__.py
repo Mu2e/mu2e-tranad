@@ -1,5 +1,5 @@
 """
-Enable running the pipeline as: python -m dqm_pipeline
+Enable running the pipeline as: python -m mu2e_tranad
 """
 
 from .run_pipeline import cli

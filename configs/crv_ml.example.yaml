@@ -1,8 +1,8 @@
 # One DQM driver running the crv_ml evaluator. Copy, edit, and run with
-#   source dqm_pipeline/setup_env.sh
-#   python -m dqm_pipeline.dqm_driver crv_ml.yaml --check     # load config + model, exit
-#   python -m dqm_pipeline.dqm_driver crv_ml.yaml             # one invocation (cron)
-# See "Online evaluation" in dqm_pipeline/README.md.
+#   source mu2e_tranad/setup_env.sh
+#   python -m mu2e_tranad.dqm_driver crv_ml.yaml --check     # load config + model, exit
+#   python -m mu2e_tranad.dqm_driver crv_ml.yaml             # one invocation (cron)
+# See "Online evaluation" in mu2e_tranad/README.md.
 
 algo:    crv_ml
 config:  crv-tranad-v1       # bump on every retrain: alarm episodes are keyed on it

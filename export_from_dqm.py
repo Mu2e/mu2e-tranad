@@ -6,8 +6,8 @@ Pulls metrics from the DQM MCP server (http://mu2eaigpvm01:8000/list) and writes
 run/subrun x metric matrix CSV consumed by the pipeline.
 
 Usage:
-  python -m dqm_pipeline.export_from_dqm
-  python -m dqm_pipeline.export_from_dqm --source crvreco,kpp_crv,file,005-001 --output out.csv
+  python -m mu2e_tranad.export_from_dqm
+  python -m mu2e_tranad.export_from_dqm --source crvreco,kpp_crv,file,005-001 --output out.csv
 """
 
 import argparse

@@ -77,7 +77,7 @@ class DqmMcpClient:
         self._request("initialize", {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {},
-            "clientInfo": {"name": "dqm_pipeline", "version": "0.2.0"},
+            "clientInfo": {"name": "mu2e-tranad", "version": "0.2.0"},
         })
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"})
 

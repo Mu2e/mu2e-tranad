@@ -1,7 +1,7 @@
 """
 `dqm-driver` with the crv_ml evaluator registered
 
-    python -m dqm_pipeline.dqm_driver crv-tranad.yaml [--check] [--commit | --no-commit]
+    python -m mu2e_tranad.dqm_driver crv-tranad.yaml [--check] [--commit | --no-commit]
 
 dqm.evaluate.config keeps a fixed registry of the evaluators in the DQM repo, and both
 load_config and build_evaluator look the algo up there. This adds crv_ml to it and then

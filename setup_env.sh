@@ -1,19 +1,19 @@
-# Environment recipe for running dqm_pipeline (incl. TranAD) on a CPU Mu2e gpvm
+# Environment recipe for running mu2e_tranad (incl. TranAD) on a CPU Mu2e gpvm
 # (e.g. mu2egpvm05) without the anldq conda env.
 #
-# Expected layout: this repo cloned as dqm_pipeline/ inside a CrossExperimentalAIDQM
+# Expected layout: this repo cloned as mu2e_tranad/ inside a CrossExperimentalAIDQM
 # checkout, so that anldq is at ../src/anldq:
 #   CrossExperimentalAIDQM/
 #   ├── src/anldq/
-#   └── dqm_pipeline/        <- this repo
+#   └── mu2e_tranad/        <- this repo
 #
 # Usage (from anywhere):
-#   source dqm_pipeline/setup_env.sh
-#   python -m dqm_pipeline --dqm-source crvreco,kpp_crv,file,005-001 --output results/<dir>
+#   source mu2e_tranad/setup_env.sh
+#   python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,005-001 --output results/<dir>
 #
 # Base: Mu2e cvmfs "ana" env (Python 3.12, torch 2.5.1, pandas, sklearn, matplotlib).
 # It is missing a few packages the pipeline/anldq import, so these are installed
-# once into dqm_pipeline/.ana_extras and added to PYTHONPATH:
+# once into mu2e_tranad/.ana_extras and added to PYTHONPATH:
 #   - seaborn      : used by visualization.py (correlation heatmap)
 #   - tensorboard  : imported when anldq is imported
 #   - spt3g (stub) : imported by anldq's SPT-3G dataset loader, which the DQM
@@ -27,8 +27,8 @@ _REPO="$(dirname "$_PKG")"
 _EXTRAS="$_PKG/.ana_extras"
 _ANA=/cvmfs/mu2e.opensciencegrid.org/env/ana/current
 
-if [ "$(basename "$_PKG")" != "dqm_pipeline" ]; then
-    echo "WARNING: this repo must be cloned into a directory named dqm_pipeline (found: $(basename "$_PKG"))"
+if [ "$(basename "$_PKG")" != "mu2e_tranad" ]; then
+    echo "WARNING: this repo must be cloned into a directory named mu2e_tranad (found: $(basename "$_PKG"))"
 fi
 if [ ! -d "$_REPO/src/anldq" ]; then
     echo "WARNING: $_REPO/src/anldq not found; clone this repo inside a CrossExperimentalAIDQM checkout"
@@ -58,15 +58,15 @@ fi
 export PYTHONPATH="$_REPO:$_EXTRAS${PYTHONPATH:+:$PYTHONPATH}"
 
 # Mu2e/DQM python package (dqm.evaluate), for the online evaluator in
-# dqm_pipeline/evaluator.py; a clone of github.com/Mu2e/DQM at $_REPO/DQM
+# mu2e_tranad/evaluator.py; a clone of github.com/Mu2e/DQM at $_REPO/DQM
 if [ -d "$_REPO/DQM/python/dqm" ]; then
     export PYTHONPATH="$_REPO/DQM/python:$PYTHONPATH"
 fi
 export MPLBACKEND=Agg
 export PYTHONWARNINGS=ignore
 
-python -c "import dqm_pipeline.tranad_model as t; assert t.TRANAD_ANL_AVAILABLE" 2>/dev/null \
-    && echo "dqm_pipeline env ready (TranAD available)" \
-    || echo "WARNING: TranAD not importable; run: python -c 'import dqm_pipeline.tranad_model'"
+python -c "import mu2e_tranad.tranad_model as t; assert t.TRANAD_ANL_AVAILABLE" 2>/dev/null \
+    && echo "mu2e_tranad env ready (TranAD available)" \
+    || echo "WARNING: TranAD not importable; run: python -c 'import mu2e_tranad.tranad_model'"
 
 unset _PKG _REPO _EXTRAS _ANA
