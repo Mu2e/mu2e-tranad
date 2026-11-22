@@ -1,12 +1,10 @@
 """
 TranAD: Official ANL Implementation Wrapper
 
-Uses the official ANL TranAD from anldq.deep_learning.models
+Uses the ANL TranAD (copied from anldq into training/anl_tranad/)
 Follows the same training approach as GenesisExample_v0.ipynb
 """
 
-import sys
-from pathlib import Path
 import numpy as np
 
 # Check for torch
@@ -20,22 +18,15 @@ try:
 except ImportError as e:
     print(f"⚠️  PyTorch not available: {e}")
 
-# Check for ANL modules
+# TranAD model: copy of the ANL anldq implementation (see anl_tranad/__init__.py)
 ANLDQ_AVAILABLE = False
 TranAD = None
 TranADConfig = None
-try:
-    src_path = str(Path(__file__).resolve().parents[2] / "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
-    
-    from anldq.deep_learning.models.tranad import TranAD
-    from anldq.configs.model_config import TranADConfig
+if TORCH_AVAILABLE:
+    from .anl_tranad import TranAD, TranADConfig
     ANLDQ_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️  ANL package not available: {e}")
 
-# TranAD is only available if both torch and anldq are present
+# Name kept for callers; true whenever torch is importable
 TRANAD_ANL_AVAILABLE = TORCH_AVAILABLE and ANLDQ_AVAILABLE
 
 
@@ -69,7 +60,7 @@ class TranADDetector:
             device: 'cpu' or 'cuda' (auto-detect if None)
         """
         if not TRANAD_ANL_AVAILABLE:
-            raise ImportError("ANL TranAD not available. Install anldq package.")
+            raise ImportError("TranAD needs PyTorch (source mu2e_tranad/setup_env.sh)")
         
         self.n_window = n_window
         self.d_model = d_model

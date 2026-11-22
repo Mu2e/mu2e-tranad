@@ -10,7 +10,8 @@ setup(
     description="DQM anomaly detection pipeline for Mu2e CRV detector",
     author="Sophie",
     # This repo *is* the package directory, so map the package to the repo root.
-    packages=["mu2e_tranad"] + [f"mu2e_tranad.{p}" for p in ("reading", "training", "evaluator", "analysis")],
+    packages=["mu2e_tranad"] + [f"mu2e_tranad.{p}" for p in ("reading", "training", "training.anl_tranad",
+                                                    "training.anl_tranad.layer", "evaluator", "analysis")],
     package_dir={"mu2e_tranad": "."},
     python_requires=">=3.9",
     install_requires=[
@@ -26,10 +27,9 @@ setup(
             "black>=21.0",
             "flake8>=3.9",
         ],
-        # TranAD also needs anldq from the enclosing CrossExperimentalAIDQM checkout
+        # TranAD (model copied from ANL anldq into training/anl_tranad/)
         "tranad": [
             "torch>=2.0",
-            "tensorboard",
         ],
     },
     entry_points={

@@ -6,19 +6,11 @@
 
 ## Quick start
 
-TranAD comes from the `anldq` package in the ANL [CrossExperimentalAIDQM](https://github.com/anl-hep-ai-ml/CrossExperimentalAIDQM) repository, which needs access. Clone this repository **inside** a CrossExperimentalAIDQM checkout, **as `mu2e_tranad/`** (underscore: the repository is `mu2e-tranad`, but the directory is also the Python package, and a package name cannot contain a hyphen):
-
-```
-CrossExperimentalAIDQM/        <- ANL repository
-├── src/anldq/                 <- provides TranAD
-└── mu2e_tranad/               <- this repository
-```
+The TranAD model is a copy of the one in the `anldq` package from the ANL [CrossExperimentalAIDQM](https://github.com/anl-hep-ai-ml/CrossExperimentalAIDQM) repository, kept in `training/anl_tranad/`. You do not need a CrossExperimentalAIDQM checkout. Clone this repository **as `mu2e_tranad/`** (underscore: the repository is `mu2e-tranad`, but the directory is also the Python package, and a package name cannot contain a hyphen).
 
 On a Mu2e gpvm (CPU is enough):
 
 ```bash
-git clone git@github.com:anl-hep-ai-ml/CrossExperimentalAIDQM.git
-cd CrossExperimentalAIDQM
 git clone https://github.com/sophiemiddleton/mu2e-tranad.git mu2e_tranad
 
 source mu2e_tranad/setup_env.sh      # must print "mu2e_tranad env ready (TranAD available)"
@@ -31,33 +23,29 @@ python -m mu2e_tranad --csv results/crvreco_005-001/dqm_crvreco_kpp_crv_file_005
     --output results/rerun_005-001
 ```
 
-Run these commands from the CrossExperimentalAIDQM directory. Open `results/<dir>/anomaly_report_*_anomalies_only.csv` and `results/<dir>/diagnostics/diagnostic_report.txt` first.
+In CrossExperimentalAIDQM, this repository is the git submodule `mu2e_tranad/`. To get it there, use `git clone --recurse-submodules`, or run `git submodule update --init mu2e_tranad` in an existing clone.
 
-> **If TranAD cannot be imported, it is silently disabled.** When `torch` or `anldq` cannot be imported, the pipeline prints `⚠️ ANL package not available` (or `PyTorch not available`) and still runs. Every TranAD score and prediction is then 0, so the primary `anomaly` column contains no anomalies. The usual causes are skipping `setup_env.sh`, cloning this repository under a name other than `mu2e_tranad`, or cloning it outside CrossExperimentalAIDQM.
+Run these commands from the directory that contains `mu2e_tranad/`. Open `results/<dir>/anomaly_report_*_anomalies_only.csv` and `results/<dir>/diagnostics/diagnostic_report.txt` first.
+
+> **If TranAD cannot be imported, it is silently disabled.** When `torch` cannot be imported, the pipeline prints `⚠️ PyTorch not available` and still runs. Every TranAD score and prediction is then 0, so the primary `anomaly` column contains no anomalies. The usual causes are skipping `setup_env.sh` or cloning this repository under a name other than `mu2e_tranad`.
 
 ---
 
 ## Environment
 
-`training/tranad_model.py` imports the TranAD model from `anldq` in `CrossExperimentalAIDQM/src`, so the directory layout in the Quick start is required. `python -m mu2e_tranad` also needs the CrossExperimentalAIDQM directory on `PYTHONPATH` (or as the current directory).
+The only dependency for TranAD is `torch`. `python -m mu2e_tranad` needs the directory that contains `mu2e_tranad/` on `PYTHONPATH` (or as the current directory).
 
-**Recommended on a Mu2e gpvm: `setup_env.sh`.** This script uses the Mu2e cvmfs `ana` environment (Python 3.12, torch 2.5.1, pandas, scikit-learn, matplotlib). On first use it adds the missing packages to `mu2e_tranad/.ana_extras/`, which is git-ignored:
+**Recommended on a Mu2e gpvm: `setup_env.sh`.** This script uses the Mu2e cvmfs `ana` environment (Python 3.12, torch 2.5.1, pandas, scikit-learn, matplotlib). On first use it installs `seaborn`, which the correlation heatmap in `analysis/visualization.py` needs, into `mu2e_tranad/.ana_extras/` (git-ignored).
 
-| Package | Why it is needed |
-|---------|------------------|
-| `seaborn` | Correlation heatmap in `analysis/visualization.py` |
-| `tensorboard` | Imported when `anldq` is imported |
-| `spt3g` (no-op stub) | Imported by the SPT-3G loader in `anldq`, which this pipeline never uses |
+The script also puts the parent directory and the extras on `PYTHONPATH`, and sets `MPLBACKEND=Agg` and `PYTHONWARNINGS=ignore`. It warns if the directory is not named `mu2e_tranad`.
 
-The script also puts CrossExperimentalAIDQM and the extras on `PYTHONPATH`, and sets `MPLBACKEND=Agg` and `PYTHONWARNINGS=ignore`. It warns if the directory layout is wrong.
-
-**Alternative: your own Python environment.** Use the ANL conda environment (`envs/anldq_gpu.yml` in CrossExperimentalAIDQM), or install the dependencies yourself:
+**Alternative: your own Python environment.** Install the dependencies yourself, ideally in a venv on top of the cvmfs `ana` env (`python -m venv --system-site-packages`):
 
 ```bash
-pip install -e "./mu2e_tranad[tranad]"   # from CrossExperimentalAIDQM; pandas, numpy, scikit-learn, matplotlib, seaborn, torch, tensorboard
+pip install -e "./mu2e_tranad[tranad]"   # pandas, numpy, scikit-learn, matplotlib, seaborn, torch
 ```
 
-This also installs a `mu2e-tranad` console command. Use `-e` (editable): a regular install copies the package away from `../src`, so `anldq` is no longer found. If you don't use the ANL conda environment, you may also need the `spt3g` stub from `setup_env.sh`.
+This also installs a `mu2e-tranad` console command.
 
 **DQM MCP server.** `--dqm-source` and `export_from_dqm` fetch data from the DQM MCP server at `http://mu2eaigpvm01.fnal.gov:8001/mcp`, which is only reachable from the FNAL network. Outside FNAL, use `--csv` with a CSV exported on site. To use a different server, set `DQM_MCP_URL`. The client only uses the Python standard library, so no extra packages are required.
 
@@ -126,7 +114,7 @@ Recalibrations are expected events, but TranAD would flag every one of them as a
 
 | Detector | What it does | Output columns | Flags a row when |
 |----------|--------------|----------------|------------------|
-| **TranAD** (primary) | Uses the `anldq` TranAD with window 4, `d_model` 32, 4 heads, `d_ff` 64 and 2 layers. It trains for 50 epochs with Adam (lr 1e-3) on the training rows, and each row is reconstructed from the 4 rows before it. The score is the mean squared reconstruction error. | `tranad_anomaly`, `tranad_reconstruction_error` | The score is above the `--threshold-percentile` (default **99.5**) of the scores on the held-out rows (`--threshold-mode heldout`) or on the training rows (`train`). |
+| **TranAD** (primary) | Uses the ANL TranAD (`training/anl_tranad/`) with window 4, `d_model` 32, 4 heads, `d_ff` 64 and 2 layers. It trains for 50 epochs with Adam (lr 1e-3) on the training rows, and each row is reconstructed from the 4 rows before it. The score is the mean squared reconstruction error. | `tranad_anomaly`, `tranad_reconstruction_error` | The score is above the `--threshold-percentile` (default **99.5**) of the scores on the held-out rows (`--threshold-mode heldout`) or on the training rows (`train`). |
 | Z-score | Computes the absolute z-score of each feature, using the mean and standard deviation of the whole dataset. | `z_score_anomaly`, `z_score_max` | Any feature has \|z\| > 3. |
 | PCA | Fits PCA on the whole dataset and computes the squared reconstruction error. | `pca_anomaly`, `pca_reconstruction_error` | The error is above its own 95th percentile, so 5% of rows are flagged by construction. |
 | Ensemble | Adds the three 0/1 votes. | `ensemble_voting_score` (0–3) | The vote is at least `--voting-threshold` (default 2). The ensemble is only used for diagnostics and comparison, and it does **not** set `anomaly`. |
@@ -312,7 +300,8 @@ point on a gpvm CPU; most of the time goes to importing torch and to the databas
 | `training/preprocessing.py` | Phase 2 |
 | `training/tranad_prep.py` | Phase 2b: condition/response split, calibration epochs and row selection; Phase 3b: training drift |
 | `training/models.py` | Phase 3: Z-score and PCA detectors, and the ensemble |
-| `training/tranad_model.py` | Wrapper around the `anldq` TranAD model |
+| `training/tranad_model.py` | Wrapper around the TranAD model |
+| `training/anl_tranad/` | Copy of the TranAD model from `anldq` in CrossExperimentalAIDQM; the source commit is `ANLDQ_COMMIT` in its `__init__.py` |
 | `training/bundle.py` | Saves and loads the trained models for the online evaluator |
 | **`evaluator/`** | |
 | `evaluator/ml_evaluator.py` | `MLEvaluator`, the `crv_ml` evaluator for the Mu2e DQM driver (also importable as `mu2e_tranad.evaluator.MLEvaluator`) |
@@ -334,7 +323,7 @@ The pipeline started as a notebook prototype (referred to as "Genesis" in some c
 ## Known limitations
 
 - **TranAD and the `anomaly` column depend on the environment.** If TranAD cannot be imported, nothing is flagged and the pipeline does not stop with an error. Check the console for the `⚠️` import warnings.
-- **TranAD scores depend on the `anldq` version.** `anldq` is maintained separately in CrossExperimentalAIDQM, and its TranAD implementation changes over time. Record the CrossExperimentalAIDQM commit (`git rev-parse HEAD` in that directory) along with your results.
+- **The TranAD copy does not follow upstream automatically.** `training/anl_tranad/` is a copy of the `anldq` TranAD from the commit in `ANLDQ_COMMIT`. Fixes made to `anldq` later must be copied in by hand (see the docstring in `training/anl_tranad/__init__.py`).
 - **Z-score and PCA are fitted on the data they score.** Their thresholds are relative to the dataset being analysed, so the 5% PCA rate is fixed by construction. Use them as cross-checks, not as absolute tests.
 - **PCA keeps every component** (`n_components=None`, and `variance_threshold` is not used), so it reconstructs the data exactly. In the `005-001` run, the reconstruction errors were about 1e-29, which is floating-point noise. The 5% of rows that PCA flags are therefore effectively random until a component count is set.
 - **TranAD trains sequentially, one window at a time, with no batching.** This is fine for thousands of rows but becomes slow on much larger datasets.

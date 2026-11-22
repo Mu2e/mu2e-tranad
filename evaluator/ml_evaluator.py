@@ -142,10 +142,10 @@ class MLEvaluator(Evaluator):
         t = self._bundle["tranad"]
         if t is None:
             raise DqmConfigError("crv_ml: the bundle has no TranAD model; use detectors: [pca]")
-        # Imported here so a PCA-only driver never needs torch or anldq
+        # Imported here so a PCA-only driver never needs torch
         from ..training.tranad_model import TRANAD_ANL_AVAILABLE, TranAD, TranADConfig, torch
         if not TRANAD_ANL_AVAILABLE:
-            raise DqmConfigError("crv_ml: TranAD needs torch and anldq "
+            raise DqmConfigError("crv_ml: TranAD needs torch "
                                  "(source mu2e_tranad/setup_env.sh)")
         model = TranAD(input_dims=len(t["inputs"]),
                        arch_config=TranADConfig(n_window=t["n_window"], **t["arch"]))
