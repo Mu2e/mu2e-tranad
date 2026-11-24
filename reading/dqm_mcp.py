@@ -20,7 +20,8 @@ PROTOCOL_VERSION = "2025-03-26"
 
 # Large enough to cover the full history of any source
 ALL_HISTORY_DAYS = 100000
-PAGE_SIZE = 2000
+# The server caps `limit` at 1000 rows per call; larger requests are silently truncated
+PAGE_SIZE = 1000
 # Max metric rows the server scans per query; its default (2000) truncates long sources
 SCAN_LIMIT = 1000000
 
@@ -123,9 +124,11 @@ class DqmMcpClient:
                                   f"or narrow the time range): {out['counts']}")
             page = out["results"]
             rows.extend(page)
-            if len(page) < PAGE_SIZE:
+            total = out["counts"].get("total_rows")
+            if not page or (total is not None and len(rows) >= total) or \
+                    (total is None and len(page) < PAGE_SIZE):
                 return rows
-            offset += PAGE_SIZE
+            offset += len(page)
 
     def resolve_source(self, source_str: str) -> dict:
         """Resolve 'process,stream,aggregation,version' (as used by DqmTool) to a source row."""
@@ -180,7 +183,8 @@ def fetch_matrix(source_str: str,
                 continue
             features.append(feat)
             for r in rows:
-                iv = r["interval"]
+                # Older servers nest the interval under "interval"; newer ones return it flat
+                iv = r.get("interval", r)
                 key = (iv["start_run"], iv["start_subrun"])
                 entry = matrix.setdefault(key, {
                     "run": iv["start_run"],

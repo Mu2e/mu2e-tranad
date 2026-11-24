@@ -2,6 +2,8 @@
 
 `mu2e-tranad` flags anomalous run/subruns in Mu2e Cosmic Ray Veto (CRV) Data Quality Monitoring metrics. It takes the per-subrun CRV metrics from the DQM database as a time series, then runs three detectors over them: a Z-score check, a PCA reconstruction check and a TranAD transformer. **TranAD is the primary detector.** The other two act as cross-checks.
 
+**By default nothing is trained.** The data is scored with a saved model: the CRV model trained on `crvreco,kpp_crv,file,006-001`, kept in [`models/`](models/README.md). Use `--model PATH` (or `MU2E_TRANAD_MODEL`) for another saved model. Use `--retrain` to train the detectors on the data instead, which also saves the new model.
+
 ---
 
 ## Quick start
@@ -15,13 +17,19 @@ git clone https://github.com/sophiemiddleton/mu2e-tranad.git mu2e_tranad
 
 source mu2e_tranad/setup_env.sh      # must print "mu2e_tranad env ready (TranAD available)"
 
-# Fetch a DQM source and analyse it (needs the FNAL network, see Environment)
-python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,005-001 --output results/crvreco_005-001
+# Fetch a DQM source and score it with the saved 006-001 model (needs the FNAL network, see Environment)
+python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,006-001 --output results/crvreco_006-001
 
-# ...or analyse a CSV you already have, for example the filtered CSV saved by the run above
-python -m mu2e_tranad --csv results/crvreco_005-001/dqm_crvreco_kpp_crv_file_005-001_filtered.csv \
-    --output results/rerun_005-001
+# ...or score a CSV you already have, for example the filtered CSV saved by the run above
+python -m mu2e_tranad --csv results/crvreco_006-001/dqm_crvreco_kpp_crv_file_006-001_filtered.csv \
+    --output results/rerun_006-001
+
+# Train a new model on the data instead (slow: 50 TranAD epochs), and save it
+python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,006-001 --output results/train_006-001 \
+    --retrain --save-model mu2e_tranad/models/crv_tranad_006-001_v2.pkl
 ```
+
+The saved model only fits data with the metrics it was trained on. Data from another source that lacks some of them stops with an error naming the missing metrics: train a model for that source with `--retrain`.
 
 In CrossExperimentalAIDQM, this repository is the git submodule `mu2e_tranad/`. To get it there, use `git clone --recurse-submodules`, or run `git submodule update --init mu2e_tranad` in an existing clone.
 
@@ -112,6 +120,10 @@ Recalibrations are expected events, but TranAD would flag every one of them as a
 
 ### Phase 3 — Detection (`models.py`, `tranad_model.py`)
 
+**Default (scoring):** `models.score_with_bundle` loads the saved model and applies its TranAD weights, input scaling, sentinel fills and threshold, and its drift reference, all frozen at training time. Phase 2b's input preparation and row selection are skipped. Z-score has no saved model and is computed on the data, as below. PCA from a model that keeps every component is skipped, because its reconstruction error is rounding noise (the 006-001 model's PCA is one of these). Scoring the data a model was trained on reproduces that training run's TranAD flags and scores exactly.
+
+**With `--retrain`:** the detectors are trained as described in the table below, and the model is saved.
+
 | Detector | What it does | Output columns | Flags a row when |
 |----------|--------------|----------------|------------------|
 | **TranAD** (primary) | Uses the ANL TranAD (`training/anl_tranad/`) with window 4, `d_model` 32, 4 heads, `d_ff` 64 and 2 layers. It trains for 50 epochs with Adam (lr 1e-3) on the training rows, and each row is reconstructed from the 4 rows before it. The score is the mean squared reconstruction error. | `tranad_anomaly`, `tranad_reconstruction_error` | The score is above the `--threshold-percentile` (default **99.5**) of the scores on the held-out rows (`--threshold-mode heldout`) or on the training rows (`train`). |
@@ -170,17 +182,20 @@ python -m mu2e_tranad (--csv PATH | --dqm-source P,S,A,V) [options]
 | `--dqm-group` | `CRV` | DQM value group to fetch |
 | `--after`, `--before` | — | ISO UTC time window used with `--dqm-source` |
 | `--output DIR` | `./results` | Output directory, created if it does not exist |
-| `--tranad-features` | `response` | `response`, `changes` or `all` (see Phase 2b) |
-| `--train-mode` | `stratified` | `stratified`, `random` or `chronological` (see Phase 2b) |
-| `--threshold-mode` | `heldout` | Set the TranAD threshold on `heldout` or `train` rows |
-| `--threshold-percentile` | `99.5` | Percentile of TranAD error used as the threshold. Lower values flag more rows. |
+| `--model PATH` | `models/crv_tranad_006-001.pkl` | Saved model to score with (`MU2E_TRANAD_MODEL` overrides the default). Not used with `--retrain` |
+| `--retrain` | off | Train the detectors on this data instead of loading a saved model. The options marked *(training)* need it |
+| `--tranad-features` *(training)* | `response` | `response`, `changes` or `all` (see Phase 2b) |
+| `--train-mode` *(training)* | `stratified` | `stratified`, `random` or `chronological` (see Phase 2b) |
+| `--threshold-mode` *(training)* | `heldout` | Set the TranAD threshold on `heldout` or `train` rows |
+| `--threshold-percentile` *(training)* | `99.5` | Percentile of TranAD error used as the threshold. Lower values flag more rows. |
 | `--voting-threshold` | `2.0` | Number of detectors that must agree for the ensemble |
-| `--seed` | `0` | Random seed for selecting TranAD rows |
+| `--seed` *(training)* | `0` | Random seed for selecting TranAD rows |
 | `--drift-window` | `50` | Number of rows in the training-drift median (see Phase 3b). Also saved as the evaluator's default. |
 | `--drift-sigma` | `3.0` | Training standard deviations an input's median can move before it counts as drift. Also saved as the evaluator's default. |
 | `--apply-iqr` / `--iqr K` | off / `1.5` | Remove IQR outliers before detection. Use only to clean training data. |
 | `--no-plots` | — | Skip Phase 6, which is the slowest step for wide datasets |
-| `--save-model PATH` | — | Save the trained models for the online evaluator (see Online evaluation) |
+| `--save-model PATH` *(training)* | `<output>/tranad_model_<timestamp>.pkl` | Where to save the trained models for the online evaluator (see Online evaluation). Every run saves them; with `--scale-by period`, `--drop-empty`, `--train-clean` or `--tranad-features changes` an explicit path is refused and the default run saves `tranad_weights_<timestamp>.pkl` (weights only, not loadable online) instead |
+| `--no-save-model` | off | With `--retrain`: don't save the trained model |
 
 ### Exporting and filtering on their own
 
@@ -201,11 +216,14 @@ python mu2e_tranad/reading/filter_from_dqm.py
 ```python
 from mu2e_tranad.run_pipeline import main, fetch_from_dqm
 
-csv = fetch_from_dqm("crvreco,kpp_crv,file,005-001", "results/005-001")
-main(csv, output_dir="results/005-001",
+csv = fetch_from_dqm("crvreco,kpp_crv,file,006-001", "results/006-001")
+main(csv, output_dir="results/006-001")                    # score with the default model
+main(csv, output_dir="results/006-001", model="other.pkl")  # ...or another saved model
+
+main(csv, output_dir="results/train", retrain=True,         # train instead
      tranad_features="response", train_mode="stratified",
      threshold_mode="heldout", threshold_percentile=99.5,
-     generate_plots=True)
+     save_model="models/new.pkl")
 ```
 
 You can also run the phases one at a time:
@@ -240,9 +258,10 @@ here, offline:
 ```bash
 source mu2e_tranad/setup_env.sh      # also puts ./DQM/python (a Mu2e/DQM clone) on PYTHONPATH
 
-# 1. Train and save the models (TranAD threshold, scaling and weights are frozen here)
-python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,004-000 --output results/004-000 \
-    --no-plots --save-model models/crv_ml_v1.pkl
+# 1. Only for a new model: train and save it (TranAD threshold, scaling and weights are
+#    frozen here). Without pars.model the driver uses models/crv_tranad_006-001.pkl.
+python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,006-001 --output results/006-001 \
+    --no-plots --retrain --save-model models/crv_ml_v1.pkl
 
 # 2. Configure a driver (copy mu2e_tranad/configs/crv_ml.example.yaml) and check it
 python -m mu2e_tranad.evaluator.dqm_driver crv_ml.yaml --check

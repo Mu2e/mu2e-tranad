@@ -87,8 +87,8 @@ def prepare_response_features(df: pd.DataFrame, features: List[str],
     Build the TranAD input table from response features:
       - drop features with fewer than min_distinct distinct values (histogram edges that
         only move on glitches dominate the reconstruction error otherwise)
-      - replace sentinel "no fit" values with the median of valid values and add a
-        0/1 '<feature>__valid' indicator
+      - replace sentinel "no fit" values and missing values (NaN) with the median of valid
+        values and add a 0/1 '<feature>__valid' indicator
 
     Returns (feature table, used feature names, dropped feature names).
     """
@@ -97,8 +97,11 @@ def prepare_response_features(df: pd.DataFrame, features: List[str],
     for f in features:
         vals = pd.to_numeric(df[f], errors="coerce")
         sentinel = sentinel_value(f)
-        if sentinel is not None:
-            ok = vals != sentinel
+        # Missing values (metric not filled for that subrun) are treated like a sentinel
+        if sentinel is not None or vals.isna().any():
+            ok = vals.notna()
+            if sentinel is not None:
+                ok &= vals != sentinel
             if ok.sum() == 0:
                 dropped.append(f)
                 continue
