@@ -13,7 +13,7 @@ a gpvm cron job (CPU, a few ms per point; the cost is importing torch).
     commit: false
 
     pars:
-      model: /exp/mu2e/app/users/.../crv_ml_v1.pkl   # from --save-model
+      model: /exp/mu2e/app/users/.../crv_ml_v1.pkl   # from --save-model; default: models/crv_tranad_006-001.pkl
       detectors: [tranad, drift] # any of tranad, pca, drift
       level: warn                # severity of a finding
       threshold_scale: 1.0       # multiply the trained thresholds (>1 = fewer findings)
@@ -47,7 +47,7 @@ import numpy as np
 from dqm.errors import DqmConfigError
 from dqm.evaluate.base import LEVELS, Evaluator, Finding, Point
 
-from ..training.bundle import VALID_SUFFIX, load_bundle
+from ..training.bundle import VALID_SUFFIX, default_model_path, load_bundle
 from ..training.tranad_prep import drift_min_points, sentinel_value
 
 LOGGER = logging.getLogger("dqm.evaluate.crv_ml")
@@ -65,9 +65,8 @@ class MLEvaluator(Evaluator):
     lookback = 4  # replaced in configure() by what the chosen detectors need
 
     def configure(self) -> None:
-        path = self.pars.get("model")
-        if not path:
-            raise DqmConfigError("crv_ml: pars.model must name a bundle from --save-model")
+        # No model named: the packaged default (training/bundle.py, $MU2E_TRANAD_MODEL)
+        path = self.pars.get("model") or default_model_path()
         try:
             self._bundle = load_bundle(str(path))
         except Exception as exc:

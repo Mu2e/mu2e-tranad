@@ -13,6 +13,7 @@ setup(
     packages=["mu2e_tranad"] + [f"mu2e_tranad.{p}" for p in ("reading", "training", "training.anl_tranad",
                                                     "training.anl_tranad.layer", "evaluator", "analysis")],
     package_dir={"mu2e_tranad": "."},
+    package_data={"mu2e_tranad": ["models/*.pkl"]},   # the default model (training/bundle.py)
     python_requires=">=3.9",
     install_requires=[
         "pandas>=1.0",

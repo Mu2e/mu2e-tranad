@@ -254,3 +254,92 @@ def run_ensemble_detection(X: np.ndarray,
         print(f"\nThreshold stored in results: {tranad_threshold:.8f}")
     
     return ensemble_pred, results
+
+
+def score_with_bundle(X: np.ndarray,
+                      df: pd.DataFrame,
+                      model_bundle: dict,
+                      voting_threshold: float = 2.0) -> Tuple[np.ndarray, Dict]:
+    """
+    Score every row with a saved model bundle (training/bundle.py) instead of training.
+
+    TranAD and PCA use the bundle's weights, scaling and thresholds, frozen at training
+    time. Z-score has no saved model: it is computed on this data, as when training. A PCA
+    model that keeps every component reconstructs exactly, so it is skipped (scores 0).
+
+    Returns (ensemble_predictions, results) with the keys of run_ensemble_detection, plus
+    'tranad_inputs' (the scaled TranAD input matrix, or None) for the drift check.
+    """
+    from .bundle import inputs_from_frame
+
+    print("\n" + "=" * 70)
+    print("ANOMALY DETECTION - SAVED MODEL")
+    print("=" * 70)
+
+    z_detector = ZScoreDetector(threshold=3.0)
+    z_detector.fit(X)
+    z_pred = z_detector.predict(X)
+    z_scores = z_detector.anomaly_scores(X)
+
+    p = model_bundle["pca"]
+    pca_pred = np.zeros(len(X), dtype=int)
+    pca_scores = np.zeros(len(X))
+    if len(p["components"]) >= len(p["features"]):
+        print(f"PCA: the model keeps all {len(p['components'])} components, so its "
+              f"reconstruction error is rounding noise; skipped")
+    else:
+        Xp, _ = inputs_from_frame(df, p["features"], {}, p["mean"])
+        Zp = (Xp - p["mean"]) / p["scale"] - p["center"]
+        C = p["components"]
+        pca_scores = ((Zp - Zp @ C.T @ C) ** 2).sum(axis=1)
+        pca_pred = (pca_scores > p["threshold"]).astype(int)
+
+    t = model_bundle["tranad"]
+    tranad_pred = np.zeros(len(X), dtype=int)
+    tranad_scores = np.zeros(len(X))
+    tranad_threshold, tranad_detector, X_tranad = None, None, None
+    if t is None:
+        print("TranAD: the model has none")
+    elif not TRANAD_ANL_AVAILABLE:
+        print("⚠️  TranAD skipped: PyTorch not available (source mu2e_tranad/setup_env.sh)")
+    else:
+        Xr, filled = inputs_from_frame(df, t["inputs"], t["fill"], t["mean"])
+        for col, n in filled.items():
+            print(f"  {col}: {n} missing value(s) set to the training mean")
+        X_tranad = (Xr - t["mean"]) / t["std"]
+        tranad_detector = TranADDetector.from_bundle(t)
+        tranad_detector.score(X_tranad)
+        tranad_pred = tranad_detector.predict(X_tranad)
+        tranad_scores = tranad_detector.anomaly_scores(X_tranad)
+        tranad_threshold = tranad_detector.threshold
+        print(f"TranAD: {len(t['inputs'])} inputs, window {t['n_window']}, "
+              f"threshold {tranad_threshold:.8f} (from training)")
+
+    votes = z_pred + pca_pred + tranad_pred
+    ensemble_pred = (votes >= voting_threshold).astype(int)
+    n_anomalies = ensemble_pred.sum()
+    anomaly_rate = n_anomalies / len(ensemble_pred) * 100
+
+    print(f"\nZ-Score Detector:   {z_pred.sum()} anomalies ({z_pred.mean() * 100:.2f}%)")
+    print(f"PCA Detector:       {pca_pred.sum()} anomalies ({pca_pred.mean() * 100:.2f}%)")
+    print(f"TranAD Detector:    {tranad_pred.sum()} anomalies ({tranad_pred.mean() * 100:.2f}%)")
+    print(f"Ensemble (>= {voting_threshold}): {n_anomalies} anomalies ({anomaly_rate:.2f}%)")
+
+    results = {
+        'ensemble_predictions': ensemble_pred,
+        'z_score_predictions': z_pred,
+        'z_score_scores': z_scores,
+        'pca_predictions': pca_pred,
+        'pca_scores': pca_scores,
+        'tranad_predictions': tranad_pred,
+        'tranad_scores': tranad_scores,
+        'tranad_losses': [],
+        'tranad_threshold': tranad_threshold,
+        'pca_detector': None,
+        'tranad_detector': tranad_detector,
+        'tranad_inputs': X_tranad,
+        'voting_scores': votes,
+        'n_anomalies': n_anomalies,
+        'anomaly_rate': anomaly_rate,
+    }
+    return ensemble_pred, results

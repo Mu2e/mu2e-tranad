@@ -184,7 +184,15 @@ def preprocess_pipeline(df: pd.DataFrame,
         print(f"  Records preserved: {len(df_clean)}")
     
     # Step 3: Extract and scale features
-    X_raw = df_clean[active_features].values
+    X_df = df_clean[active_features].apply(pd.to_numeric, errors='coerce')
+    n_missing = X_df.isna().sum()
+    if n_missing.any():
+        # Some metrics are not filled for every subrun; Z-score and PCA need a full matrix
+        print(f"\nMissing values (filled with column median):")
+        for col, n in n_missing[n_missing > 0].items():
+            print(f"  {col}: {n}/{len(X_df)}")
+        X_df = X_df.fillna(X_df.median())
+    X_raw = X_df.values
     X_scaled, scaler = scale_features(X_raw)
     
     print(f"\n✓ Preprocessing complete")

@@ -160,20 +160,8 @@ class TranADDetector:
         
         # Compute reconstruction errors on full dataset
         print(f"  Computing reconstruction errors...")
-        
-        self.model.eval()
-        reconstruction_errors = np.zeros(len(X) - self.n_window)
-        
-        with torch.no_grad():
-            for i in range(self.n_window, len(X)):
-                x_window = X_full_tensor[i - self.n_window:i].unsqueeze(0)
-                x_target = X_full_tensor[i].unsqueeze(0).unsqueeze(1)
-                x1, x2 = self.model(x_window, x_target)
-                mse = torch.mean((x2.squeeze() - X_full_tensor[i]) ** 2).item()
-                reconstruction_errors[i - self.n_window] = mse
-        
-        self.reconstruction_errors = reconstruction_errors
-        
+        reconstruction_errors = self.score(X)
+
         # Threshold: percentile of errors on held-out rows if given, else training rows
         ref_idx = train_idx if val_idx is None else np.asarray(val_idx)
         ref_idx = ref_idx[ref_idx >= self.n_window]
@@ -184,7 +172,38 @@ class TranADDetector:
         print(f"✓ Threshold ({self.threshold_percentile}th percentile of {source}): {self.threshold:.8f}")
         
         return self
-    
+
+    @classmethod
+    def from_bundle(cls, t: dict, device=None) -> 'TranADDetector':
+        """A detector with trained weights and threshold, from a model bundle's 'tranad'
+        entry (training/bundle.py). Call score(X) on it, then predict / anomaly_scores."""
+        det = cls(n_window=t["n_window"], device=device, **t["arch"])
+        det.model = TranAD(input_dims=len(t["inputs"]),
+                           arch_config=TranADConfig(n_window=t["n_window"], **t["arch"]))
+        det.model.load_state_dict({k: torch.from_numpy(v) for k, v in t["state_dict"].items()})
+        det.model = det.model.to(det.device)
+        det.threshold = float(t["threshold"])
+        return det
+
+    def score(self, X: np.ndarray) -> np.ndarray:
+        """
+        Reconstruction error of every row from the n_window rows before it, with the
+        current weights. Stores the errors for predict() / anomaly_scores() and returns them
+        (length len(X) - n_window).
+        """
+        X_full_tensor = torch.FloatTensor(X).to(self.device)
+        self.model.eval()
+        reconstruction_errors = np.zeros(max(len(X) - self.n_window, 0))
+        with torch.no_grad():
+            for i in range(self.n_window, len(X)):
+                x_window = X_full_tensor[i - self.n_window:i].unsqueeze(0)
+                x_target = X_full_tensor[i].unsqueeze(0).unsqueeze(1)
+                x1, x2 = self.model(x_window, x_target)
+                mse = torch.mean((x2.squeeze() - X_full_tensor[i]) ** 2).item()
+                reconstruction_errors[i - self.n_window] = mse
+        self.reconstruction_errors = reconstruction_errors
+        return reconstruction_errors
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
         Predict anomalies.
