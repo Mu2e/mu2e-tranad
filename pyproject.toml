@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mu2e-tranad"
+dynamic = ["version"]
+description = "DQM anomaly detection (Z-Score, PCA, TranAD) for the Mu2e CRV detector"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Sophie" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+# torch is a core dependency: TranAD is the primary detector and the bundled
+# default model (models/*.pkl) is a TranAD bundle. Without torch the pipeline
+# runs but every TranAD score is 0.
+dependencies = [
+  "pandas>=1.0",
+  "numpy>=1.19",
+  "scikit-learn>=0.24",
+  "matplotlib>=3.3",
+  "seaborn>=0.11",
+  "torch>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=6.0", "black>=21.0", "flake8>=3.9"]
+
+[project.urls]
+Homepage = "https://github.com/Mu2e/mu2e-tranad"
+
+[project.scripts]
+mu2e-tranad = "mu2e_tranad.run_pipeline:cli"
+
+# This repository *is* the mu2e_tranad package directory, so the package is
+# mapped onto the repo root rather than found under src/ or a subdirectory.
+[tool.setuptools]
+package-dir = { "mu2e_tranad" = "." }
+packages = [
+  "mu2e_tranad",
+  "mu2e_tranad.reading",
+  "mu2e_tranad.training",
+  "mu2e_tranad.training.anl_tranad",
+  "mu2e_tranad.training.anl_tranad.layer",
+  "mu2e_tranad.analysis",
+]
+
+[tool.setuptools.package-data]
+# the default model loaded by training/bundle.py (and by the DQM tranad evaluator)
+mu2e_tranad = ["models/*.pkl"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mu2e_tranad.__version__" }

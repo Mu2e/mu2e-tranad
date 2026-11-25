@@ -2,14 +2,18 @@
 Model bundle: what a trained pipeline run leaves behind for online evaluation
 
 Training is offline (run_pipeline.py --save-model); scoring is one point at a time
-inside the DQM driver (evaluator/ml_evaluator.py). The bundle carries everything the second needs
-from the first, frozen at training time:
+inside the DQM driver, by the `tranad` evaluator in Mu2e/DQM
+(python/dqm/evaluate/tranad.py). The bundle carries everything the second needs from the
+first, frozen at training time:
   - PCA     - feature list, StandardScaler mean/scale, components, error threshold
   - TranAD  - input columns, sentinel fill values, scaling, weights, threshold
   - drift   - training medians of the reference inputs (TranAD's, else PCA's), window, sigma
 
 Arrays are stored as numpy and the TranAD weights as a numpy state_dict, so loading
 needs neither sklearn pickles nor a matching torch build.
+
+The bundle's keys are an interface to Mu2e/DQM: renaming or reshaping one needs the
+matching change in dqm/evaluate/tranad.py, released together with this package.
 """
 
 import os

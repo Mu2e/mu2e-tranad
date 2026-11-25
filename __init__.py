@@ -11,8 +11,6 @@ Subpackages:
   training/   - Feature selection and scaling, TranAD input preparation, the Z-Score,
                 PCA and TranAD models, and the frozen model bundle (preprocessing,
                 tranad_prep, models, tranad_model, bundle)
-  evaluator/  - The `crv_ml` evaluator for the Mu2e DQM driver framework (ml_evaluator,
-                dqm_driver); needs the Mu2e/DQM python package
   analysis/   - Diagnostics and plots of the results (diagnostics, visualization)
 
 run_pipeline.py runs reading -> training -> reports -> analysis (see README.md).
@@ -21,7 +19,6 @@ run_pipeline.py runs reading -> training -> reports -> analysis (see README.md).
 __version__ = "0.1.0"
 __author__ = "Sophie"
 
-# evaluator is not imported here: it needs the Mu2e/DQM package (dqm.evaluate)
 from . import reading, training, analysis
 
 __all__ = ["reading", "training", "analysis"]

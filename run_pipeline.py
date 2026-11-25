@@ -226,7 +226,7 @@ def main(csv_path: str,
         drift_sigma: Flag training drift when a feature's window median has moved more
             than this many training standard deviations from its training median
         save_model: If set, write the trained models here for the online DQM evaluator
-            (see training/bundle.py / evaluator/ml_evaluator.py)
+            (see training/bundle.py; read by dqm/evaluate/tranad.py in Mu2e/DQM)
         auto_save: Without save_model, still save the trained model in output_dir
             (tranad_model_<timestamp>.pkl, a full bundle; or tranad_weights_<timestamp>.pkl,
             weights only, when the options are ones the bundle can't represent)
@@ -589,7 +589,7 @@ Examples:
         "--save-model",
         type=str,
         help="With --retrain: write the trained models to this file, for the online DQM "
-             "evaluator (mu2e_tranad/evaluator/). Default: saved anyway, as "
+             "evaluator (tranad, in Mu2e/DQM). Default: saved anyway, as "
              "<output>/tranad_model_<timestamp>.pkl"
     )
     parser.add_argument(

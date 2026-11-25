@@ -13,7 +13,7 @@ The TranAD model is a copy of the one in the `anldq` package from the ANL [Cross
 On a Mu2e gpvm (CPU is enough):
 
 ```bash
-git clone https://github.com/sophiemiddleton/mu2e-tranad.git mu2e_tranad
+git clone https://github.com/Mu2e/mu2e-tranad.git mu2e_tranad
 
 source mu2e_tranad/setup_env.sh      # must print "mu2e_tranad env ready (TranAD available)"
 
@@ -47,13 +47,14 @@ The only dependency for TranAD is `torch`. `python -m mu2e_tranad` needs the dir
 
 The script also puts the parent directory and the extras on `PYTHONPATH`, and sets `MPLBACKEND=Agg` and `PYTHONWARNINGS=ignore`. It warns if the directory is not named `mu2e_tranad`.
 
-**Alternative: your own Python environment.** Install the dependencies yourself, ideally in a venv on top of the cvmfs `ana` env (`python -m venv --system-site-packages`):
+**Alternative: pip install.** The repo is a pip-installable package (`pyproject.toml`). Use any Python environment, ideally a venv on top of the cvmfs `ana` env (`python -m venv --system-site-packages`) so torch is not downloaded again:
 
 ```bash
-pip install -e "./mu2e_tranad[tranad]"   # pandas, numpy, scikit-learn, matplotlib, seaborn, torch
+pip install git+https://github.com/Mu2e/mu2e-tranad.git   # from GitHub
+pip install -e ./mu2e_tranad                              # editable, from a clone
 ```
 
-This also installs a `mu2e-tranad` console command.
+The install includes pandas, numpy, scikit-learn, matplotlib, seaborn and torch, plus the bundled default model, and a `mu2e-tranad` console command (same as `python -m mu2e_tranad`). With a pip install, the clone directory does not need to be named `mu2e_tranad`. For running a saved model in the DQM driver, see Online evaluation.
 
 **DQM MCP server.** `--dqm-source` and `export_from_dqm` fetch data from the DQM MCP server at `http://mu2eaigpvm01.fnal.gov:8001/mcp`, which is only reachable from the FNAL network. Outside FNAL, use `--csv` with a CSV exported on site. To use a different server, set `DQM_MCP_URL`. The client only uses the Python standard library, so no extra packages are required.
 
@@ -69,14 +70,13 @@ This also installs a `mu2e-tranad` console command.
                                                       (tranad_prep.py) └─► PCA     ┘
 ```
 
-The code is split into four subpackages, in the order the data flows through them:
+The code is split into three subpackages, in the order the data flows through them:
 
 | Directory | Stage | Phases |
 |-----------|-------|--------|
 | `reading/` | Fetch, filter and load the DQM metrics | 0, 1 |
 | `training/` | Preprocess, prepare the TranAD inputs, fit the detectors, save the model bundle | 2, 2b, 3, 3b |
 | `analysis/` | Diagnostics and plots of the results | 5, 6 |
-| `evaluator/` | Score new DQM points online with a saved bundle (not part of a batch run) | — |
 
 `run_pipeline.py` at the top level runs the batch phases in order and writes the reports (Phase 4).
 
@@ -249,42 +249,28 @@ client.list_values(groupx="CRV")
 
 ## Online evaluation (Mu2e DQM driver)
 
-The trained models can run inside the Mu2e DQM evaluation framework
-([Mu2e/DQM](https://github.com/Mu2e/DQM), `python/dqm/evaluate`), next to the `limits` and
-`trends` evaluators. The DQM driver hands an evaluator one new timeline point at a time,
-together with the points before it, and commits what it reports as alarms. Training stays
-here, offline:
+The trained models run inside the Mu2e DQM evaluation framework as the `tranad` evaluator,
+next to `limits` and `trends`. The evaluator lives in Mu2e/DQM
+([`python/dqm/evaluate/tranad.py`](https://github.com/Mu2e/DQM/blob/main/python/dqm/evaluate/tranad.py));
+its module docstring has the driver config, the `pars` and the subjects it reports
+(`tranad_outlier`, `pca_outlier`, `training_drift`). Training stays here, offline:
 
 ```bash
-source mu2e_tranad/setup_env.sh      # also puts ./DQM/python (a Mu2e/DQM clone) on PYTHONPATH
-
 # 1. Only for a new model: train and save it (TranAD threshold, scaling and weights are
-#    frozen here). Without pars.model the driver uses models/crv_tranad_006-001.pkl.
+#    frozen here). Without pars.model the evaluator uses models/crv_tranad_006-001.pkl.
 python -m mu2e_tranad --dqm-source crvreco,kpp_crv,file,006-001 --output results/006-001 \
-    --no-plots --retrain --save-model models/crv_ml_v1.pkl
+    --no-plots --retrain --save-model models/crv_tranad_v1.pkl
 
-# 2. Configure a driver (copy mu2e_tranad/configs/crv_ml.example.yaml) and check it
-python -m mu2e_tranad.evaluator.dqm_driver crv_ml.yaml --check
-
-# 3. Run it, from cron; report mode (commit: false) writes nothing to the database
-python -m mu2e_tranad.evaluator.dqm_driver crv_ml.yaml
+# 2. Run it with the stock DQM driver (algo: tranad, pars.model: the file above)
+pip install 'mu2e-dqm[tranad] @ git+https://github.com/Mu2e/DQM.git#subdirectory=python'
+dqm-driver tranad.yaml --check
+dqm-driver tranad.yaml               # report mode (commit: false) writes nothing
 ```
 
-`dqm_driver` is the DQM `dqm-driver` command with the `crv_ml` algorithm added to its
-registry, so the code does not need to live in the DQM repository. The evaluator
-(`evaluator/ml_evaluator.py`) reports these subjects:
-
-| Subject | Raised when |
-|---------|-------------|
-| `tranad_outlier` | TranAD's reconstruction error for the point, from it and the 4 points before it, is above the trained threshold |
-| `pca_outlier` | The PCA reconstruction error is above the trained threshold. Refused until PCA keeps fewer components (see Known limitations). |
-| `training_drift` | Over the point and the `drift_window − 1` points before it, the median of some input has moved more than `drift_sigma` training standard deviations from its training median (see Phase 3b). Needs a bundle saved with this version. |
-
-Each finding names the `top_causes` worst-reconstructed metrics as its causes, and its note
-holds the score, the threshold, those metrics' values and errors, and the training date.
-Replaying the 004-000 training data through the driver reproduces the batch
-`tranad_reconstruction_error` and flags to float32 precision. Scoring takes about 5 ms per
-point on a gpvm CPU; most of the time goes to importing torch and to the database reads.
+The bundle format (`training/bundle.py`) is the interface between the two repositories:
+a change to its keys needs the matching change in `dqm/evaluate/tranad.py`. Replaying the
+004-000 training data through the driver reproduces the batch `tranad_reconstruction_error`
+and flags to float32 precision, at about 5 ms per point on a gpvm CPU.
 
 - **Start with a floor.** Set `min_time` (or `min_run`) to the go-live date. Without one, the
   first invocations examine the whole back history and open an alarm episode for every old
@@ -321,19 +307,15 @@ point on a gpvm CPU; most of the time goes to importing torch and to the databas
 | `training/models.py` | Phase 3: Z-score and PCA detectors, and the ensemble |
 | `training/tranad_model.py` | Wrapper around the TranAD model |
 | `training/anl_tranad/` | Copy of the TranAD model from `anldq` in CrossExperimentalAIDQM; the source commit is `ANLDQ_COMMIT` in its `__init__.py` |
-| `training/bundle.py` | Saves and loads the trained models for the online evaluator |
-| **`evaluator/`** | |
-| `evaluator/ml_evaluator.py` | `MLEvaluator`, the `crv_ml` evaluator for the Mu2e DQM driver (also importable as `mu2e_tranad.evaluator.MLEvaluator`) |
-| `evaluator/dqm_driver.py` | `dqm-driver` with `crv_ml` registered |
+| `training/bundle.py` | Saves and loads the trained models for the online evaluator (`tranad` in Mu2e/DQM) |
 | **`analysis/`** | |
 | `analysis/diagnostics.py` | Phase 5 |
 | `analysis/visualization.py` | Phase 6 |
 | [analysis/DIAGNOSTICS.md](analysis/DIAGNOSTICS.md) | Guide to the Phase 5 diagnostics |
 | **Top level** | |
-| `configs/crv_ml.example.yaml` | Example driver config |
 | `configs/periods_005-001.csv` | Example `--periods` file |
 | `setup_env.sh` | Environment for a Mu2e gpvm (see Environment) |
-| `setup.py` | Optional `pip install -e` support |
+| `pyproject.toml` | pip packaging (see Environment) |
 
 The pipeline started as a notebook prototype (referred to as "Genesis" in some code comments) that used the Mu2e `DqmTool` exporter. This repository replaces it.
 

@@ -30,8 +30,8 @@ fi
 
 export PYTHONPATH="$_PARENT:$_EXTRAS${PYTHONPATH:+:$PYTHONPATH}"
 
-# Mu2e/DQM python package (dqm.evaluate), for the online evaluator in
-# mu2e_tranad/evaluator/; a clone of github.com/Mu2e/DQM next to this repo
+# Mu2e/DQM python package, for running the `tranad` evaluator (dqm/evaluate/tranad.py)
+# with dqm-driver from this env; a clone of github.com/Mu2e/DQM next to this repo
 if [ -d "$_PARENT/DQM/python/dqm" ]; then
     export PYTHONPATH="$_PARENT/DQM/python:$PYTHONPATH"
 fi
